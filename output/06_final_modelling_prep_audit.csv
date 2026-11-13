@@ -1,0 +1,14 @@
+"stage","count"
+"Original master records imported",5964
+"Additional exact copies set aside",7
+"Main records after duplicate policy",5957
+"Eligible full-market second-hand price records (2019-2025)",5070
+"Development training records (2019-2023)",3748
+"Development validation records (2024)",647
+"Primary training records (2019-2024)",4395
+"Held-out final test records (2025)",675
+"Eligible price records with exact copies retained (sensitivity)",5074
+"Exported modelling variables per dataset",12
+"Exported RDS dataset files",6
+"Exported CSV dataset files",6
+"Preparation diagnostic charts saved",3

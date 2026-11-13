@@ -1,0 +1,10 @@
+"variable","total_records","missing_records","missing_percent","unique_non_missing"
+"Date of Sale (dd/mm/yyyy)",5964,0,0,1667
+"Address",5964,0,0,5403
+"County",5964,0,0,1
+"Eircode",5964,2842,47.65,2976
+"Price (€)",5964,0,0,1067
+"Not Full Market Price",5964,0,0,2
+"VAT Exclusive",5964,0,0,2
+"Description of Property",5964,0,0,2
+"Property Size Description",5964,5964,100,0
