@@ -1,10 +1,10 @@
-The compiled master dataset (Sligo_Master_2019_2025.csv) contained 5,964 records.
-Applying the CA2 exact-copy policy left 5,957 main records (7 exact-copy pairs set aside).
-Applying the full-market, second-hand, VAT Exclusive = No rules left 5,070 eligible price records.
-Elapsed time (time_years) was calculated from a fixed origin of 1 January 2019 (365.25 days per year).
+The original master dataset contained 5,964 records and nine variables.
+Seven additional exact copies were set aside for the main analysis, leaving 5,957 records.
+The price-modelling subset applied full-market, second-hand and VAT Exclusive No rules (n = 5,070).
+Elapsed time (time_years) was calculated from 1 January 2019 using 365.25 days per year.
 Calendar quarter (Q1-Q4) was stored as an unordered factor with Q1 as the reference level.
-Natural log-transformed price (log_price_eur) was created alongside raw price_eur.
-The dataset was split chronologically into 2019-2024 training (n = 4,395) and held-out 2025 test (n = 675).
-An internal development split of 2019-2023 (n = 3,748) and 2024 (n = 647) was also exported.
-Addresses and Eircodes were excluded from all exported RDS and CSV modelling datasets.
-All 5,074 eligible records with exact copies retained were exported for sensitivity checking.
+Log-transformed price (log_price_eur) was created alongside price_eur.
+The dataset was split by year into 2019-2024 training (n = 4,395) and 2025 test (n = 675).
+A development split of 2019-2023 (n = 3,748) and 2024 (n = 647) was also exported.
+Addresses and Eircodes were omitted from the exported RDS and CSV files.
+All 5,074 eligible records with exact copies retained were exported for the sensitivity check.

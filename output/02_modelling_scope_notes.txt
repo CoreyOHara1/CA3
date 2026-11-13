@@ -1,6 +1,6 @@
-CA3 continues with the CA2 eligible price subset (n = 5,070; sensitivity n = 5,074).
-Eligibility requires second-hand status, Not Full Market Price = No and VAT Exclusive = No.
-Within the eligible subset, county, property_status, not_full_market_price and vat_exclusive are constant.
-Property size description is 100% missing and Eircode is missing in 2,128 of 5,070 eligible records (41.97%).
-Sale date and price are complete in all 5,070 eligible records.
-Predictive modelling therefore uses derived calendar predictors (elapsed time and quarter) to predict price.
+The price subset applies full-market, second-hand and VAT Exclusive No rules.
+Seven additional exact copies were set aside for the main analysis.
+The full formatted dataset was retained for the duplicate sensitivity check.
+County, property status, VAT flag and market-price flag are constant in the eligible subset.
+Property size descriptions are missing in all records and Eircodes are missing in 41.97% of eligible records.
+Sale date and price are complete in all eligible records.

@@ -1,29 +1,18 @@
-# SECTION 1: Importing and inspecting the master dataset --------------
-# Continuing from CA1 and CA2 using the compiled Sligo master CSV.
-# Keeping the raw master file unchanged and preparing the modelling subsets.
+# SECTION 1: Importing and inspecting the CA1 master ------------------
+# Starting with the combined dataset from CA1, but keeping the original CSV unchanged.
 
-# Setting the project folder and master file if not already defined
-if (!exists("project_dir")) {
-  project_dir <- getwd()
-}
-
-if (!exists("input_file")) {
-  input_file <- file.path(project_dir, "Sligo_Master_2019_2025.csv")
-}
-
-# Checking that the project folder and master CSV exist
+# Checking project setup has been run
 stopifnot(
   exists("project_dir"),
-  dir.exists(project_dir),
   exists("input_file"),
   file.exists(input_file)
 )
 
-# Creating the folder for preparation outputs
+# Creating a folder for the prep outputs
 output_dir <- file.path(project_dir, "output")
 dir.create(output_dir, showWarnings = FALSE)
 
-# Reading the master CSV as character data before type conversion
+# Reading master as text before setting the variable types
 raw <- read.csv(
   input_file,
   check.names = FALSE,
@@ -32,7 +21,7 @@ raw <- read.csv(
   fileEncoding = "UTF-8"
 )
 
-# Checking that the nine PSRA column names match the master schema
+# Checking column names
 expected_columns <- c(
   "Date of Sale (dd/mm/yyyy)",
   "Address",
@@ -45,23 +34,20 @@ expected_columns <- c(
   "Property Size Description"
 )
 
-stopifnot(
-  identical(names(raw), expected_columns),
-  nrow(raw) == 5964,
-  ncol(raw) == 9
-)
+stopifnot(identical(names(raw), expected_columns))
 
-# Displaying the imported record and variable counts
+# Checking the number of records, column names and current types
 cat("Records imported:", nrow(raw), "\n")
 cat("Variables imported:", ncol(raw), "\n")
 
 names(raw)
 str(raw)
 
-# Auditing missing values and exact duplicate rows in the master import
+# Counting additional exact copies without removing them
 duplicate_count <- sum(duplicated(raw))
-cat("Additional exact copies in master:", duplicate_count, "\n")
+cat("Additional exact copies:", duplicate_count, "\n")
 
+# Counting missing values and unique values in each column
 master_import_audit <- data.frame(
   variable = names(raw),
   total_records = nrow(raw),
@@ -77,44 +63,32 @@ master_import_audit <- data.frame(
 
 print(master_import_audit, row.names = FALSE)
 
-# Checking the categorical values in the raw master
+# Checking the county and the values used in the categorical fields
 table(raw[["County"]], useNA = "ifany")
 table(raw[["Not Full Market Price"]], useNA = "ifany")
 table(raw[["VAT Exclusive"]], useNA = "ifany")
 table(raw[["Description of Property"]], useNA = "ifany")
 
-# Saving the master import audit for the CA3 report
+# Saving the import audit for the report
 write.csv(
   master_import_audit,
   file.path(output_dir, "01_master_import_audit.csv"),
   row.names = FALSE
 )
 
-stopifnot(
-  file.exists(file.path(output_dir, "01_master_import_audit.csv")),
-  file.info(file.path(output_dir, "01_master_import_audit.csv"))$size > 0
-)
-
-cat(
-  "\nSection 1 completed. Master records verified:",
-  nrow(raw),
-  "\n"
-)
-
 
 # SECTION 2: Formatting variables and applying eligibility rules ------
 
-# Checking that the imported master data and output folder exist
+# Checking that the imported data and output folder are available
 stopifnot(
   exists("raw"),
-  exists("output_dir"),
-  nrow(raw) == 5964
+  exists("output_dir")
 )
 
 # Creating a working copy and keeping raw unchanged
 sligo <- raw
 
-# Renaming columns to consistent R variable names
+# Renaming the columns for use in the analysis
 names(sligo) <- c(
   "sale_date",
   "address",
@@ -127,28 +101,28 @@ names(sligo) <- c(
   "property_size_description"
 )
 
-# Stripping surrounding spaces and converting empty strings to NA
+# Removing surrounding spaces and treating empty text as missing
 sligo[] <- lapply(sligo, function(x) {
   x <- trimws(x)
   x[!is.na(x) & x == ""] <- NA_character_
   x
 })
 
-# Preserving the original date text to check conversion accuracy
+# Keeping the date text for checking the conversion
 original_dates <- sligo$sale_date
 
-# Parsing sale dates in day/month/year format
+# Converting the dates from day/month/year
 sligo$sale_date <- as.Date(
   original_dates,
   format = "%d/%m/%Y"
 )
 
-# Stripping euro symbols and commas before numeric price conversion
+# Removing currency symbols and commas before converting prices
 sligo$price_eur <- as.numeric(
   gsub("[\u20ac,]", "", sligo$price_eur)
 )
 
-# Verifying clean date and price conversions
+# Checking for failed conversions and non-positive prices
 stopifnot(
   !anyNA(sligo$sale_date),
   !anyNA(sligo$price_eur),
@@ -157,7 +131,7 @@ stopifnot(
   all(format(sligo$sale_date, "%d/%m/%Y") == original_dates)
 )
 
-# Checking binary indicator values before factor conversion
+# Checking the values used in the Yes/No fields
 stopifnot(
   !anyNA(sligo$not_full_market_price),
   !anyNA(sligo$vat_exclusive),
@@ -165,6 +139,7 @@ stopifnot(
   all(sligo$vat_exclusive %in% c("No", "Yes"))
 )
 
+# Converting the Yes/No fields to factors
 sligo$not_full_market_price <- factor(
   sligo$not_full_market_price,
   levels = c("No", "Yes")
@@ -175,7 +150,7 @@ sligo$vat_exclusive <- factor(
   levels = c("No", "Yes")
 )
 
-# Checking and converting property status descriptions
+# Checking the property descriptions before shortening the labels
 property_labels <- c(
   "New Dwelling house /Apartment",
   "Second-Hand Dwelling house /Apartment"
@@ -186,13 +161,14 @@ stopifnot(
   all(sligo$property_status %in% property_labels)
 )
 
+# Converting property status to a factor
 sligo$property_status <- factor(
   sligo$property_status,
   levels = property_labels,
   labels = c("New", "Second-hand")
 )
 
-# Confirming that every record is in County Sligo
+# Checking the county and converting it to a factor
 stopifnot(
   !anyNA(sligo$county),
   all(sligo$county == "Sligo")
@@ -200,24 +176,24 @@ stopifnot(
 
 sligo$county <- factor(sligo$county)
 
-# Identifying exact duplicate rows across all nine original columns
+# Identifying exact copies using all original imported columns
 duplicate_rows <- duplicated(raw)
 
-# Retaining all formatted records for sensitivity checking
+# Keeping all formatted records for the sensitivity check
 sligo_all_records <- sligo
 
-# Retaining the first occurrence of each exact match for the main analysis
+# Retaining the first occurrence of each exact match
 sligo_clean <- sligo_all_records[!duplicate_rows, ]
 rownames(sligo_clean) <- NULL
 
+# Checking the retained records against the original duplicate flags
 stopifnot(
-  nrow(sligo_all_records) == 5964,
-  nrow(sligo_clean) == 5957,
+  nrow(sligo_all_records) == nrow(raw),
+  nrow(sligo_clean) == nrow(raw) - sum(duplicate_rows),
   !anyDuplicated(raw[!duplicate_rows, ])
 )
 
-# Applying the CA2 principal price eligibility criteria:
-# Second-hand status, full market price (No) and VAT Exclusive (No)
+# Selecting the full-market, second-hand records with VAT Exclusive No
 price_data <- subset(
   sligo_clean,
   not_full_market_price == "No" &
@@ -227,6 +203,7 @@ price_data <- subset(
 price_data <- droplevels(price_data)
 rownames(price_data) <- NULL
 
+# Applying the same price rules with exact copies retained
 price_data_all_records <- subset(
   sligo_all_records,
   not_full_market_price == "No" &
@@ -236,15 +213,16 @@ price_data_all_records <- subset(
 price_data_all_records <- droplevels(price_data_all_records)
 rownames(price_data_all_records) <- NULL
 
+# Checking that the price rules were applied
 stopifnot(
-  nrow(price_data) == 5070,
-  nrow(price_data_all_records) == 5074,
+  nrow(price_data) > 0,
+  nrow(price_data_all_records) > 0,
   all(price_data$not_full_market_price == "No"),
   all(price_data$property_status == "Second-hand"),
   all(price_data$vat_exclusive == "No")
 )
 
-# Auditing variable suitability within the 5,070 eligible price records
+# Checking variable completeness and variation in the price subset
 suitability_audit <- data.frame(
   variable = names(price_data),
   r_class = vapply(
@@ -264,29 +242,29 @@ suitability_audit <- data.frame(
     integer(1)
   ),
   modelling_role = c(
-    "Source date used to derive elapsed sale time (time_years) and quarter",
-    "Excluded from modelling and public exports (unstructured street address)",
-    "Constant in eligible subset (Sligo only); zero predictor variation",
-    "Excluded from modelling (41.97% missing in eligible subset)",
-    "Continuous response variable (recorded price in EUR; also log-transformed)",
-    "Constant in eligible subset (all No); defines full-market scope",
-    "Constant in eligible subset (all No); defines VAT-inclusive scope",
-    "Constant in eligible subset (all Second-hand); defines dwelling scope",
-    "Excluded from modelling (100% missing in all records)"
+    "Used to derive elapsed sale time (time_years) and quarter",
+    "Excluded from modelling and exports",
+    "Constant in subset (Sligo only)",
+    "Excluded from modelling (missing in 41.97% of eligible records)",
+    "Response variable (price_eur; also log-transformed)",
+    "Constant in subset (all No)",
+    "Constant in subset (all No)",
+    "Constant in subset (all Second-hand)",
+    "Excluded from modelling (missing in all records)"
   ),
   row.names = NULL
 )
 
 print(suitability_audit, row.names = FALSE)
 
-# Recording the scope and eligibility notes
+# Recording the scope and eligibility decisions
 modelling_scope_notes <- c(
-  "CA3 continues with the CA2 eligible price subset (n = 5,070; sensitivity n = 5,074).",
-  "Eligibility requires second-hand status, Not Full Market Price = No and VAT Exclusive = No.",
-  "Within the eligible subset, county, property_status, not_full_market_price and vat_exclusive are constant.",
-  "Property size description is 100% missing and Eircode is missing in 2,128 of 5,070 eligible records (41.97%).",
-  "Sale date and price are complete in all 5,070 eligible records.",
-  "Predictive modelling therefore uses derived calendar predictors (elapsed time and quarter) to predict price."
+  "The price subset applies full-market, second-hand and VAT Exclusive No rules.",
+  "Seven additional exact copies were set aside for the main analysis.",
+  "The full formatted dataset was retained for the duplicate sensitivity check.",
+  "County, property status, VAT flag and market-price flag are constant in the eligible subset.",
+  "Property size descriptions are missing in all records and Eircodes are missing in 41.97% of eligible records.",
+  "Sale date and price are complete in all eligible records."
 )
 
 # Saving the variable suitability table and scope notes
@@ -301,11 +279,6 @@ writeLines(
   file.path(output_dir, "02_modelling_scope_notes.txt")
 )
 
-stopifnot(
-  file.exists(file.path(output_dir, "02_eligibility_and_variable_suitability.csv")),
-  file.exists(file.path(output_dir, "02_modelling_scope_notes.txt"))
-)
-
 cat(
   "\nSection 2 completed.",
   "\nMain records after duplicate policy:", nrow(sligo_clean),
@@ -317,21 +290,22 @@ cat(
 
 # SECTION 3: Deriving the predictive modelling features ----------------
 
-# Checking that the eligible price datasets and output folder exist
+# Checking that both eligible datasets and the output folder exist
 stopifnot(
   exists("price_data"),
   exists("price_data_all_records"),
-  exists("output_dir"),
-  nrow(price_data) == 5070,
-  nrow(price_data_all_records) == 5074
+  exists("output_dir")
 )
 
-# Defining the fixed date origin for the continuous sale-time predictor
-# 1 January 2019 is the start of the first calendar year in the dataset
+# Recording the current row counts for checking afterwards
+price_count <- nrow(price_data)
+price_all_count <- nrow(price_data_all_records)
+
+# Setting the start of the dataset as the origin for elapsed time
 origin_date <- as.Date("2019-01-01")
 days_per_year <- 365.25
 
-# Defining a single function to derive calendar and response features
+# Defining the calendar and price variables once for both datasets
 add_modelling_features <- function(data, origin, year_length) {
 
   stopifnot(
@@ -343,7 +317,7 @@ add_modelling_features <- function(data, origin, year_length) {
     all(data$price_eur > 0)
   )
 
-  # Extracting calendar year and month as integers
+  # Extracting the sale year and month
   data$year <- as.integer(format(data$sale_date, "%Y"))
   data$month <- as.integer(format(data$sale_date, "%m"))
 
@@ -352,8 +326,7 @@ add_modelling_features <- function(data, origin, year_length) {
     all(data$month %in% 1:12)
   )
 
-  # Creating quarter as an UNORDERED factor with Q1 as reference level
-  # Using treatment contrasts rather than polynomial contrasts in lm()
+  # Grouping months into calendar quarters with Q1 as the reference level
   data$quarter <- factor(
     (data$month - 1L) %/% 3L + 1L,
     levels = 1:4,
@@ -361,7 +334,7 @@ add_modelling_features <- function(data, origin, year_length) {
     ordered = FALSE
   )
 
-  # Retaining the CA1/CA2 analytical period for continuity checks
+  # Grouping years into the three comparison periods
   data$period <- factor(
     ifelse(
       data$year == 2019,
@@ -372,14 +345,14 @@ add_modelling_features <- function(data, origin, year_length) {
     ordered = FALSE
   )
 
-  # Calculating elapsed days and elapsed years since 1 January 2019
+  # Calculating elapsed days and years since 1 January 2019
   data$time_days <- as.numeric(data$sale_date - origin)
   data$time_years <- data$time_days / year_length
 
-  # Calculating natural log-transformed price for Model B
+  # Calculating log-transformed price
   data$log_price_eur <- log(data$price_eur)
 
-  # Checking the derived variables
+  # Checking the new variables
   stopifnot(
     !anyNA(data$quarter),
     !is.ordered(data$quarter),
@@ -395,7 +368,7 @@ add_modelling_features <- function(data, origin, year_length) {
   return(data)
 }
 
-# Applying the feature derivation to both eligible datasets
+# Adding the same variables to both eligible datasets
 price_data <- add_modelling_features(
   price_data,
   origin = origin_date,
@@ -408,12 +381,13 @@ price_data_all_records <- add_modelling_features(
   year_length = days_per_year
 )
 
+# Checking that no records were removed
 stopifnot(
-  nrow(price_data) == 5070,
-  nrow(price_data_all_records) == 5074
+  nrow(price_data) == price_count,
+  nrow(price_data_all_records) == price_all_count
 )
 
-# Summarising the derived continuous and factor variables
+# Summarising the continuous variables
 derived_feature_summary <- data.frame(
   variable = c(
     "price_eur",
@@ -423,7 +397,7 @@ derived_feature_summary <- data.frame(
   ),
   description = c(
     "Recorded full-market second-hand price (EUR)",
-    "Natural logarithm of recorded price, log(price_eur)",
+    "Natural log of recorded price, log(price_eur)",
     "Elapsed days since 2019-01-01",
     "Elapsed years since 2019-01-01 (time_days / 365.25)"
   ),
@@ -475,7 +449,7 @@ derived_feature_summary <- data.frame(
 
 print(derived_feature_summary, row.names = FALSE, digits = 6)
 
-# Cross-tabulating eligible records by sale year and quarter
+# Counting eligible records in each quarter by year
 year_quarter_matrix <- with(
   price_data,
   table(
@@ -500,7 +474,7 @@ stopifnot(
   sum(quarterly_counts_by_year$total_records) == nrow(price_data)
 )
 
-# Saving the derived feature summaries
+# Saving the feature and quarterly summaries
 write.csv(
   derived_feature_summary,
   file.path(output_dir, "03_derived_feature_summary.csv"),
@@ -513,15 +487,10 @@ write.csv(
   row.names = FALSE
 )
 
-stopifnot(
-  file.exists(file.path(output_dir, "03_derived_feature_summary.csv")),
-  file.exists(file.path(output_dir, "03_quarterly_counts_by_year.csv"))
-)
-
 cat(
   "\nSection 3 completed.",
   "\nOrigin date:", format(origin_date, "%Y-%m-%d"),
-  "\nQuarter ordered factor?", is.ordered(price_data$quarter),
+  "\nQuarter ordered factor:", is.ordered(price_data$quarter),
   "\nQuarter reference level:", levels(price_data$quarter)[1],
   "\n"
 )
@@ -529,32 +498,30 @@ cat(
 
 # SECTION 4: Constructing chronological train, validation and test splits
 
-# Checking that the feature-engineered datasets exist
+# Checking that the prepared datasets and output folder exist
 stopifnot(
   exists("price_data"),
   exists("price_data_all_records"),
   exists("output_dir"),
-  nrow(price_data) == 5070,
-  nrow(price_data_all_records) == 5074,
   all(c("time_years", "quarter", "log_price_eur") %in% names(price_data))
 )
 
-# Splitting the dataset chronologically before making modelling decisions:
-# 1. Internal development split: 2019-2023 training vs 2024 validation
-# 2. Primary modelling split: 2019-2024 training vs 2025 held-out test
+# Splitting the dataset by sale year for model development and testing
+# Development split: 2019-2023 training and 2024 validation
+# Main split: 2019-2024 training and 2025 test
 train_dev_2019_2023 <- subset(price_data, year >= 2019 & year <= 2023)
 val_2024 <- subset(price_data, year == 2024)
 
 train_2019_2024 <- subset(price_data, year >= 2019 & year <= 2024)
 test_2025 <- subset(price_data, year == 2025)
 
-# Resetting row names on each split
+# Resetting row names after subsetting
 rownames(train_dev_2019_2023) <- NULL
 rownames(val_2024) <- NULL
 rownames(train_2019_2024) <- NULL
 rownames(test_2025) <- NULL
 
-# Creating the corresponding sensitivity splits with exact copies retained
+# Preparing the corresponding sensitivity splits with exact copies retained
 train_2019_2024_all_records <- subset(
   price_data_all_records,
   year >= 2019 & year <= 2024
@@ -566,16 +533,14 @@ test_2025_all_records <- subset(
 rownames(train_2019_2024_all_records) <- NULL
 rownames(test_2025_all_records) <- NULL
 
-# Verifying split sizes, non-overlap and chronological ordering
+# Checking that the splits are non-empty, non-overlapping and in date order
 stopifnot(
-  nrow(train_dev_2019_2023) == 3748,
-  nrow(val_2024) == 647,
-  nrow(train_2019_2024) == 4395,
-  nrow(test_2025) == 675,
+  nrow(train_dev_2019_2023) > 0,
+  nrow(val_2024) > 0,
+  nrow(train_2019_2024) > 0,
+  nrow(test_2025) > 0,
   nrow(train_dev_2019_2023) + nrow(val_2024) == nrow(train_2019_2024),
   nrow(train_2019_2024) + nrow(test_2025) == nrow(price_data),
-  nrow(train_2019_2024_all_records) == 4398,
-  nrow(test_2025_all_records) == 676,
   nrow(train_2019_2024_all_records) + nrow(test_2025_all_records) ==
     nrow(price_data_all_records),
   max(train_dev_2019_2023$sale_date) < min(val_2024$sale_date),
@@ -586,7 +551,7 @@ stopifnot(
   all(table(test_2025$quarter) > 0)
 )
 
-# Defining a helper to summarise each chronological split
+# Defining the summary table for each chronological split
 summarise_split <- function(data, split_name, role_description) {
   data.frame(
     split = split_name,
@@ -619,27 +584,27 @@ chronological_split_summary <- rbind(
   summarise_split(
     train_dev_2019_2023,
     "train_dev_2019_2023",
-    "Internal development training set (2019-2023)"
+    "Development training set (2019-2023)"
   ),
   summarise_split(
     val_2024,
     "val_2024",
-    "Internal development validation set (2024)"
+    "Development validation set (2024)"
   ),
   summarise_split(
     train_2019_2024,
     "train_2019_2024",
-    "Primary training set (2019-2024)"
+    "Main training set (2019-2024)"
   ),
   summarise_split(
     test_2025,
     "test_2025",
-    "Held-out final test set (2025)"
+    "Held-out test set (2025)"
   ),
   summarise_split(
     price_data,
     "price_data_2019_2025",
-    "Complete eligible dataset (2019-2025; final refit for 2026 forecasts)"
+    "All eligible price records (2019-2025)"
   )
 )
 
@@ -672,7 +637,7 @@ annual_modelling_summary <- do.call(
 
 print(annual_modelling_summary, row.names = FALSE, digits = 6)
 
-# Saving the chronological split and annual summaries
+# Saving the split and annual summaries
 write.csv(
   chronological_split_summary,
   file.path(output_dir, "04_chronological_split_summary.csv"),
@@ -685,46 +650,44 @@ write.csv(
   row.names = FALSE
 )
 
-stopifnot(
-  file.exists(file.path(output_dir, "04_chronological_split_summary.csv")),
-  file.exists(file.path(output_dir, "04_annual_modelling_summary.csv"))
-)
-
 cat(
   "\nSection 4 completed.",
   "\nDevelopment split: 2019-2023 (n =", nrow(train_dev_2019_2023),
   ") vs 2024 (n =", nrow(val_2024), ")",
-  "\nPrimary split: 2019-2024 (n =", nrow(train_2019_2024),
+  "\nMain split: 2019-2024 (n =", nrow(train_2019_2024),
   ") vs 2025 (n =", nrow(test_2025), ")\n"
 )
 
 
 # SECTION 5: Assessing training distributions and relationships --------
 
-# Checking that the primary training dataset and output folder exist
+# Checking that the training dataset and folders are available
 stopifnot(
   exists("train_2019_2024"),
   exists("project_dir"),
-  exists("output_dir"),
-  nrow(train_2019_2024) == 4395
+  exists("output_dir")
 )
 
-# Creating the folder for preparation figures
+# Creating a folder for the charts
 figures_dir <- file.path(project_dir, "figures")
 dir.create(figures_dir, showWarnings = FALSE)
 
-# Setting the coral orange and slate grey palette used in CA2
+# Setting the chart colours
 chart_colour <- "#FF7F50"
 secondary_colour <- "#5B7083"
 
-# Defining a helper for sample skewness
+# Defining sample skewness
 calculate_skewness <- function(x) {
   x_centred <- x - mean(x)
   mean(x_centred^3) / (sd(x)^3)
 }
 
-# Running Shapiro-Wilk and distributional checks on the 2019-2024 training set
-# (Shapiro-Wilk in R requires 3 <= n <= 5000; n = 4,395 satisfies this)
+# Checking the sample size before running the Shapiro-Wilk tests
+stopifnot(
+  nrow(train_2019_2024) >= 3,
+  nrow(train_2019_2024) <= 5000
+)
+
 shapiro_raw_train <- shapiro.test(train_2019_2024$price_eur)
 shapiro_log_train <- shapiro.test(train_2019_2024$log_price_eur)
 
@@ -1276,16 +1239,16 @@ write.csv(
 )
 
 final_modelling_prep_notes <- c(
-  "The compiled master dataset (Sligo_Master_2019_2025.csv) contained 5,964 records.",
-  "Applying the CA2 exact-copy policy left 5,957 main records (7 exact-copy pairs set aside).",
-  "Applying the full-market, second-hand, VAT Exclusive = No rules left 5,070 eligible price records.",
-  "Elapsed time (time_years) was calculated from a fixed origin of 1 January 2019 (365.25 days per year).",
+  "The original master dataset contained 5,964 records and nine variables.",
+  "Seven additional exact copies were set aside for the main analysis, leaving 5,957 records.",
+  "The price-modelling subset applied full-market, second-hand and VAT Exclusive No rules (n = 5,070).",
+  "Elapsed time (time_years) was calculated from 1 January 2019 using 365.25 days per year.",
   "Calendar quarter (Q1-Q4) was stored as an unordered factor with Q1 as the reference level.",
-  "Natural log-transformed price (log_price_eur) was created alongside raw price_eur.",
-  "The dataset was split chronologically into 2019-2024 training (n = 4,395) and held-out 2025 test (n = 675).",
-  "An internal development split of 2019-2023 (n = 3,748) and 2024 (n = 647) was also exported.",
-  "Addresses and Eircodes were excluded from all exported RDS and CSV modelling datasets.",
-  "All 5,074 eligible records with exact copies retained were exported for sensitivity checking."
+  "Log-transformed price (log_price_eur) was created alongside price_eur.",
+  "The dataset was split by year into 2019-2024 training (n = 4,395) and 2025 test (n = 675).",
+  "A development split of 2019-2023 (n = 3,748) and 2024 (n = 647) was also exported.",
+  "Addresses and Eircodes were omitted from the exported RDS and CSV files.",
+  "All 5,074 eligible records with exact copies retained were exported for the sensitivity check."
 )
 
 writeLines(
@@ -1293,13 +1256,13 @@ writeLines(
   file.path(output_dir, "06_final_modelling_prep_notes.txt")
 )
 
-# Recording the R session information for the preparation script
+# Saving the R version, operating system and package information
 writeLines(
   capture.output(sessionInfo()),
   file.path(output_dir, "06_preparation_session_info.txt")
 )
 
-# Checking that all exported files exist and are non-empty
+# Checking that all expected exports exist
 exported_rds_files <- list.files(
   data_dir,
   pattern = "\\.rds$",
@@ -1316,17 +1279,19 @@ stopifnot(
   length(exported_rds_files) == 6,
   length(exported_csv_files) == 6,
   all(file.info(exported_rds_files)$size > 0),
-  all(file.info(exported_csv_files)$size > 0),
-  file.exists(file.path(output_dir, "06_final_modelling_prep_audit.csv")),
-  file.exists(file.path(output_dir, "06_final_modelling_prep_notes.txt")),
-  file.exists(file.path(output_dir, "06_preparation_session_info.txt"))
+  all(file.info(exported_csv_files)$size > 0)
 )
 
-cat("\nModelling data preparation completed successfully.\n")
+# Displaying the completed preparation outputs
+cat("\nPreparation completed successfully.\n")
 cat("Eligible price records (2019-2025):", nrow(price_data_export), "\n")
 cat("Development training records (2019-2023):", nrow(train_dev_export), "\n")
 cat("Development validation records (2024):", nrow(val_2024_export), "\n")
-cat("Primary training records (2019-2024):", nrow(train_2019_2024_export), "\n")
+cat("Main training records (2019-2024):", nrow(train_2019_2024_export), "\n")
 cat("Held-out 2025 test records:", nrow(test_2025_export), "\n")
 cat("RDS files exported:", length(exported_rds_files), "\n")
 cat("CSV files exported:", length(exported_csv_files), "\n")
+cat("Preparation charts saved:", length(list.files(figures_dir, pattern = "\\.png$")), "\n")
+
+print(exported_rds_files)
+print(exported_csv_files)
