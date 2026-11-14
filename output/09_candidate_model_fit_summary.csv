@@ -1,0 +1,5 @@
+"model","dataset","records","response_scale","parameters","residual_df","r_squared","adj_r_squared","residual_se","f_statistic","f_df1","f_df2","f_p_value","aic","bic","smearing_factor","lognormal_factor"
+"Baseline (Mean)","train_2019_2024",4395,"price_eur",1,4394,0,0,145565.105086779,NA,NA,NA,NA,NA,NA,NA,NA
+"Baseline (Median)","train_2019_2024",4395,"price_eur",1,4394,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+"Model A (Linear price)","train_2019_2024",4395,"price_eur",5,4390,0.0513115459435179,0.0504471373293436,141845.921146012,59.3602899162701,4,4390,6.94742153467621e-49,116750.812722818,116789.142059679,NA,NA
+"Model B (Log-linear price)","train_2019_2024",4395,"log_price_eur",5,4390,0.0687827192371653,0.0679342296874954,0.655747350941815,81.064898517508,4,4390,1.77330908618922e-66,8770.26529773343,8808.59463459414,1.22737794259932,1.23986474137817

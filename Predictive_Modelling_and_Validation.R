@@ -295,3 +295,232 @@ cat(
   "\n2024 validation records:", nrow(val_2024),
   "\n"
 )
+
+
+# SECTION 3: Fitting candidate models on the 2019-2024 training set
+
+# Checking training dataset, formulas and output folder
+stopifnot(
+  exists("train_2019_2024"),
+  exists("model_a_formula"),
+  exists("model_b_formula"),
+  exists("output_dir"),
+  exists("alpha")
+)
+
+# Calculating 2019-2024 baseline mean and median prices
+baseline_mean_price <- mean(train_2019_2024$price_eur)
+baseline_median_price <- median(train_2019_2024$price_eur)
+
+# Fitting Model A (euro scale) and Model B (log scale) on 2019-2024 records
+model_a <- lm(
+  model_a_formula,
+  data = train_2019_2024
+)
+
+model_b <- lm(
+  model_b_formula,
+  data = train_2019_2024
+)
+
+summary_a <- summary(model_a)
+summary_b <- summary(model_b)
+
+confint_a <- confint(model_a, level = 1 - alpha)
+confint_b <- confint(model_b, level = 1 - alpha)
+
+# Calculating Duan smearing and normal-theory retransformation factors
+smearing_factor_b <- mean(exp(residuals(model_b)))
+lognormal_factor_b <- exp((summary_b$sigma^2) / 2)
+
+cat("\nModel A summary (2019-2024 training set):\n")
+print(summary_a)
+
+cat("\nModel B summary (2019-2024 training set):\n")
+print(summary_b)
+
+# Extracting coefficient table for Model A and Model B
+coef_mat_a <- summary_a$coefficients
+coef_mat_b <- summary_b$coefficients
+
+coef_table_a <- data.frame(
+  model = "Model A (Linear price)",
+  response_scale = "price_eur",
+  term = rownames(coef_mat_a),
+  estimate = coef_mat_a[, "Estimate"],
+  std_error = coef_mat_a[, "Std. Error"],
+  t_value = coef_mat_a[, "t value"],
+  p_value = coef_mat_a[, "Pr(>|t|)"],
+  ci_95_lower = confint_a[, 1],
+  ci_95_upper = confint_a[, 2],
+  exp_estimate = NA_real_,
+  exp_ci_95_lower = NA_real_,
+  exp_ci_95_upper = NA_real_,
+  percent_change_estimate = NA_real_,
+  row.names = NULL
+)
+
+is_slope_b <- rownames(coef_mat_b) != "(Intercept)"
+
+coef_table_b <- data.frame(
+  model = "Model B (Log-linear price)",
+  response_scale = "log_price_eur",
+  term = rownames(coef_mat_b),
+  estimate = coef_mat_b[, "Estimate"],
+  std_error = coef_mat_b[, "Std. Error"],
+  t_value = coef_mat_b[, "t value"],
+  p_value = coef_mat_b[, "Pr(>|t|)"],
+  ci_95_lower = confint_b[, 1],
+  ci_95_upper = confint_b[, 2],
+  exp_estimate = exp(coef_mat_b[, "Estimate"]),
+  exp_ci_95_lower = exp(confint_b[, 1]),
+  exp_ci_95_upper = exp(confint_b[, 2]),
+  percent_change_estimate = ifelse(
+    is_slope_b,
+    100 * (exp(coef_mat_b[, "Estimate"]) - 1),
+    NA_real_
+  ),
+  row.names = NULL
+)
+
+candidate_model_coefficients <- rbind(
+  coef_table_a,
+  coef_table_b
+)
+
+cat("\nCandidate model coefficients (2019-2024 training set):\n")
+print(candidate_model_coefficients, row.names = FALSE, digits = 6)
+
+# Calculating overall F-test p-values for Model A and Model B
+f_stat_a <- unname(summary_a$fstatistic["value"])
+f_df1_a <- unname(summary_a$fstatistic["numdf"])
+f_df2_a <- unname(summary_a$fstatistic["dendf"])
+f_pval_a <- pf(f_stat_a, f_df1_a, f_df2_a, lower.tail = FALSE)
+
+f_stat_b <- unname(summary_b$fstatistic["value"])
+f_df1_b <- unname(summary_b$fstatistic["numdf"])
+f_df2_b <- unname(summary_b$fstatistic["dendf"])
+f_pval_b <- pf(f_stat_b, f_df1_b, f_df2_b, lower.tail = FALSE)
+
+# Summarising training fit statistics across candidate specifications
+candidate_model_fit_summary <- data.frame(
+  model = c(
+    "Baseline (Mean)",
+    "Baseline (Median)",
+    "Model A (Linear price)",
+    "Model B (Log-linear price)"
+  ),
+  dataset = "train_2019_2024",
+  records = nrow(train_2019_2024),
+  response_scale = c(
+    "price_eur",
+    "price_eur",
+    "price_eur",
+    "log_price_eur"
+  ),
+  parameters = c(
+    1L,
+    1L,
+    length(coef(model_a)),
+    length(coef(model_b))
+  ),
+  residual_df = c(
+    nrow(train_2019_2024) - 1L,
+    nrow(train_2019_2024) - 1L,
+    df.residual(model_a),
+    df.residual(model_b)
+  ),
+  r_squared = c(
+    0,
+    NA_real_,
+    summary_a$r.squared,
+    summary_b$r.squared
+  ),
+  adj_r_squared = c(
+    0,
+    NA_real_,
+    summary_a$adj.r.squared,
+    summary_b$adj.r.squared
+  ),
+  residual_se = c(
+    sd(train_2019_2024$price_eur),
+    NA_real_,
+    summary_a$sigma,
+    summary_b$sigma
+  ),
+  f_statistic = c(
+    NA_real_,
+    NA_real_,
+    f_stat_a,
+    f_stat_b
+  ),
+  f_df1 = c(
+    NA_real_,
+    NA_real_,
+    f_df1_a,
+    f_df1_b
+  ),
+  f_df2 = c(
+    NA_real_,
+    NA_real_,
+    f_df2_a,
+    f_df2_b
+  ),
+  f_p_value = c(
+    NA_real_,
+    NA_real_,
+    f_pval_a,
+    f_pval_b
+  ),
+  aic = c(
+    NA_real_,
+    NA_real_,
+    AIC(model_a),
+    AIC(model_b)
+  ),
+  bic = c(
+    NA_real_,
+    NA_real_,
+    BIC(model_a),
+    BIC(model_b)
+  ),
+  smearing_factor = c(
+    NA_real_,
+    NA_real_,
+    NA_real_,
+    smearing_factor_b
+  ),
+  lognormal_factor = c(
+    NA_real_,
+    NA_real_,
+    NA_real_,
+    lognormal_factor_b
+  ),
+  row.names = NULL
+)
+
+cat("\nCandidate model fit summary (2019-2024 training set):\n")
+print(candidate_model_fit_summary, row.names = FALSE, digits = 6)
+
+# Saving coefficient and fit summary tables
+write.csv(
+  candidate_model_coefficients,
+  file.path(output_dir, "08_candidate_model_coefficients.csv"),
+  row.names = FALSE
+)
+
+write.csv(
+  candidate_model_fit_summary,
+  file.path(output_dir, "09_candidate_model_fit_summary.csv"),
+  row.names = FALSE
+)
+
+cat(
+  "\nSection 3 completed.",
+  "\nTraining baseline mean (EUR):", round(baseline_mean_price, 2),
+  "\nTraining baseline median (EUR):", round(baseline_median_price, 2),
+  "\nModel A R-squared:", round(summary_a$r.squared, 5),
+  "\nModel B R-squared:", round(summary_b$r.squared, 5),
+  "\nModel B Duan smearing factor:", round(smearing_factor_b, 6),
+  "\n"
+)
