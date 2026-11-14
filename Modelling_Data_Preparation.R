@@ -1,10 +1,12 @@
-# SECTION 1: Importing and inspecting the CA1 master ------------------
-# Starting with the combined dataset from CA1, but keeping the original CSV unchanged.
+# SECTION 1: Importing and inspecting the CA1 master
+# Importing the CA1 master dataset while keeping the original CSV unchanged
 
-# Checking project setup has been run
+# Checking project folder and master file
+project_dir <- "/Users/corey/Documents/Education/Data Analytics/ATU - Big Data Analytics/Data Science/CA 3/CA3/CA3"
+input_file <- file.path(project_dir, "Sligo_Master_2019_2025.csv")
+
 stopifnot(
-  exists("project_dir"),
-  exists("input_file"),
+  dir.exists(project_dir),
   file.exists(input_file)
 )
 
@@ -77,9 +79,9 @@ write.csv(
 )
 
 
-# SECTION 2: Formatting variables and applying eligibility rules ------
+# SECTION 2: Formatting variables and applying eligibility rules
 
-# Checking that the imported data and output folder are available
+# Checking imported data and output folder
 stopifnot(
   exists("raw"),
   exists("output_dir")
@@ -288,9 +290,9 @@ cat(
 )
 
 
-# SECTION 3: Deriving the predictive modelling features ----------------
+# SECTION 3: Deriving the predictive modelling features
 
-# Checking that both eligible datasets and the output folder exist
+# Checking eligible datasets and output folder
 stopifnot(
   exists("price_data"),
   exists("price_data_all_records"),
@@ -659,9 +661,9 @@ cat(
 )
 
 
-# SECTION 5: Assessing training distributions and relationships --------
+# SECTION 5: Assessing training distributions and relationships
 
-# Checking that the training dataset and folders are available
+# Checking training dataset and folders
 stopifnot(
   exists("train_2019_2024"),
   exists("project_dir"),
@@ -770,7 +772,7 @@ write.csv(
 )
 
 
-# Chart 1: Raw vs log-transformed price distributions on training data
+# Creating the training price and log-price distribution charts
 
 fig1_path <- file.path(
   figures_dir,
@@ -843,7 +845,7 @@ qqline(train_2019_2024$log_price_eur, col = "black", lwd = 2)
 dev.off()
 
 
-# Chart 2: Price and log-price against elapsed time on training data
+# Plotting training prices and log-prices over elapsed time
 
 fig2_path <- file.path(
   figures_dir,
@@ -915,7 +917,7 @@ abline(
 dev.off()
 
 
-# Chart 3: Training price and log-price distributions by quarter
+# Plotting training prices and log-prices by calendar quarter
 
 fig3_path <- file.path(
   figures_dir,
@@ -1023,9 +1025,9 @@ cat(
 )
 
 
-# SECTION 6: Validating and exporting the prepared modelling data ------
+# SECTION 6: Validating and exporting the prepared modelling data
 
-# Checking that all prepared modelling subsets and folders exist
+# Checking prepared modelling subsets and folders
 stopifnot(
   exists("raw"),
   exists("sligo_clean"),
