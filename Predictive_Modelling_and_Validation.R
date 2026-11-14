@@ -524,3 +524,321 @@ cat(
   "\nModel B Duan smearing factor:", round(smearing_factor_b, 6),
   "\n"
 )
+
+
+# SECTION 4: Checking residual diagnostics and model assumptions
+
+# Checking fitted models, training dataset and folders
+stopifnot(
+  exists("model_a"),
+  exists("model_b"),
+  exists("train_2019_2024"),
+  exists("output_dir"),
+  exists("figures_dir"),
+  exists("chart_colour"),
+  exists("secondary_colour")
+)
+
+# Extracting fitted values, raw residuals and standardised residuals
+fitted_a <- fitted(model_a)
+resid_a <- residuals(model_a)
+std_resid_a <- rstandard(model_a)
+
+fitted_b <- fitted(model_b)
+resid_b <- residuals(model_b)
+std_resid_b <- rstandard(model_b)
+
+# Defining skewness and excess kurtosis helpers
+calculate_skew <- function(x) {
+  mean(((x - mean(x)) / sd(x))^3)
+}
+
+calculate_excess_kurtosis <- function(x) {
+  mean(((x - mean(x)) / sd(x))^4) - 3
+}
+
+# Checking sample size before running Shapiro-Wilk tests on residuals
+stopifnot(
+  length(resid_a) >= 3,
+  length(resid_a) <= 5000,
+  length(resid_b) >= 3,
+  length(resid_b) <= 5000
+)
+
+shapiro_resid_a <- shapiro.test(resid_a)
+shapiro_resid_b <- shapiro.test(resid_b)
+
+# Testing scale-location correlation between sqrt(|std_resid|) and fitted values
+scale_loc_cor_a <- cor.test(
+  fitted_a,
+  sqrt(abs(std_resid_a)),
+  method = "spearman",
+  exact = FALSE
+)
+
+scale_loc_cor_b <- cor.test(
+  fitted_b,
+  sqrt(abs(std_resid_b)),
+  method = "spearman",
+  exact = FALSE
+)
+
+# Summarising residual diagnostics for Model A and Model B
+residual_assumptions_audit <- data.frame(
+  model = c(
+    "Model A (Linear price)",
+    "Model B (Log-linear price)"
+  ),
+  response_scale = c(
+    "price_eur",
+    "log_price_eur"
+  ),
+  records = c(
+    length(resid_a),
+    length(resid_b)
+  ),
+  mean_residual = c(
+    mean(resid_a),
+    mean(resid_b)
+  ),
+  median_residual = c(
+    median(resid_a),
+    median(resid_b)
+  ),
+  sd_residual = c(
+    sd(resid_a),
+    sd(resid_b)
+  ),
+  iqr_residual = c(
+    IQR(resid_a),
+    IQR(resid_b)
+  ),
+  min_residual = c(
+    min(resid_a),
+    min(resid_b)
+  ),
+  max_residual = c(
+    max(resid_a),
+    max(resid_b)
+  ),
+  residual_skewness = c(
+    calculate_skew(resid_a),
+    calculate_skew(resid_b)
+  ),
+  residual_excess_kurtosis = c(
+    calculate_excess_kurtosis(resid_a),
+    calculate_excess_kurtosis(resid_b)
+  ),
+  shapiro_W = c(
+    unname(shapiro_resid_a$statistic),
+    unname(shapiro_resid_b$statistic)
+  ),
+  shapiro_p_value = c(
+    shapiro_resid_a$p.value,
+    shapiro_resid_b$p.value
+  ),
+  scale_location_spearman_rho = c(
+    unname(scale_loc_cor_a$estimate),
+    unname(scale_loc_cor_b$estimate)
+  ),
+  scale_location_p_value = c(
+    scale_loc_cor_a$p.value,
+    scale_loc_cor_b$p.value
+  ),
+  std_resid_gt_2_count = c(
+    sum(abs(std_resid_a) > 2),
+    sum(abs(std_resid_b) > 2)
+  ),
+  std_resid_gt_3_count = c(
+    sum(abs(std_resid_a) > 3),
+    sum(abs(std_resid_b) > 3)
+  ),
+  row.names = NULL
+)
+
+cat("\nResidual diagnostics summary (2019-2024 training set):\n")
+print(residual_assumptions_audit, row.names = FALSE, digits = 6)
+
+# Saving residual diagnostics table
+write.csv(
+  residual_assumptions_audit,
+  file.path(output_dir, "10_residual_assumptions_audit.csv"),
+  row.names = FALSE
+)
+
+
+# Creating Model A residual diagnostic chart
+
+fig4_path <- file.path(
+  figures_dir,
+  "04_model_a_residual_diagnostics.png"
+)
+
+png(
+  fig4_path,
+  width = 2200,
+  height = 1700,
+  res = 180
+)
+
+par(
+  mfrow = c(2, 2),
+  mar = c(4.5, 4.5, 3.5, 1.5),
+  las = 1
+)
+
+fitted_a_k <- fitted_a / 1000
+resid_a_k <- resid_a / 1000
+
+plot(
+  x = fitted_a_k,
+  y = resid_a_k,
+  pch = 16,
+  cex = 0.45,
+  col = adjustcolor(chart_colour, alpha.f = 0.4),
+  main = "Model A: Residuals vs fitted values",
+  xlab = "Fitted price (EUR thousands)",
+  ylab = "Residual (EUR thousands)"
+)
+abline(h = 0, col = "black", lwd = 2, lty = 2)
+lines(
+  lowess(fitted_a_k, resid_a_k),
+  col = secondary_colour,
+  lwd = 2
+)
+
+qqnorm(
+  std_resid_a,
+  pch = 16,
+  cex = 0.45,
+  col = adjustcolor(chart_colour, alpha.f = 0.45),
+  main = "Model A: Normal Q-Q plot of standardised residuals",
+  xlab = "Normal quantile",
+  ylab = "Standardised residual"
+)
+qqline(std_resid_a, col = "black", lwd = 2)
+
+plot(
+  x = fitted_a_k,
+  y = sqrt(abs(std_resid_a)),
+  pch = 16,
+  cex = 0.45,
+  col = adjustcolor(chart_colour, alpha.f = 0.4),
+  main = "Model A: Scale-location plot",
+  xlab = "Fitted price (EUR thousands)",
+  ylab = "Sqrt(|Standardised residual|)"
+)
+lines(
+  lowess(fitted_a_k, sqrt(abs(std_resid_a))),
+  col = "black",
+  lwd = 2
+)
+
+hist(
+  resid_a_k,
+  breaks = 45,
+  col = chart_colour,
+  border = "white",
+  main = "Model A: Residual distribution (EUR thousands)",
+  xlab = "Residual (EUR thousands)",
+  ylab = "Records"
+)
+abline(v = 0, col = "black", lwd = 2, lty = 2)
+
+dev.off()
+
+
+# Creating Model B residual diagnostic chart
+
+fig5_path <- file.path(
+  figures_dir,
+  "05_model_b_residual_diagnostics.png"
+)
+
+png(
+  fig5_path,
+  width = 2200,
+  height = 1700,
+  res = 180
+)
+
+par(
+  mfrow = c(2, 2),
+  mar = c(4.5, 4.5, 3.5, 1.5),
+  las = 1
+)
+
+plot(
+  x = fitted_b,
+  y = resid_b,
+  pch = 16,
+  cex = 0.45,
+  col = adjustcolor(secondary_colour, alpha.f = 0.4),
+  main = "Model B: Residuals vs fitted values (log scale)",
+  xlab = "Fitted log price, log(EUR)",
+  ylab = "Residual, log(EUR)"
+)
+abline(h = 0, col = "black", lwd = 2, lty = 2)
+lines(
+  lowess(fitted_b, resid_b),
+  col = chart_colour,
+  lwd = 2
+)
+
+qqnorm(
+  std_resid_b,
+  pch = 16,
+  cex = 0.45,
+  col = adjustcolor(secondary_colour, alpha.f = 0.45),
+  main = "Model B: Normal Q-Q plot of standardised residuals",
+  xlab = "Normal quantile",
+  ylab = "Standardised residual"
+)
+qqline(std_resid_b, col = "black", lwd = 2)
+
+plot(
+  x = fitted_b,
+  y = sqrt(abs(std_resid_b)),
+  pch = 16,
+  cex = 0.45,
+  col = adjustcolor(secondary_colour, alpha.f = 0.4),
+  main = "Model B: Scale-location plot (log scale)",
+  xlab = "Fitted log price, log(EUR)",
+  ylab = "Sqrt(|Standardised residual|)"
+)
+lines(
+  lowess(fitted_b, sqrt(abs(std_resid_b))),
+  col = "black",
+  lwd = 2
+)
+
+hist(
+  resid_b,
+  breaks = 45,
+  col = secondary_colour,
+  border = "white",
+  main = "Model B: Residual distribution (log scale)",
+  xlab = "Residual, log(EUR)",
+  ylab = "Records"
+)
+abline(v = 0, col = "black", lwd = 2, lty = 2)
+
+dev.off()
+
+# Checking saved diagnostic charts
+diagnostic_charts <- c(fig4_path, fig5_path)
+
+stopifnot(
+  all(file.exists(diagnostic_charts)),
+  all(file.info(diagnostic_charts)$size > 0)
+)
+
+cat(
+  "\nSection 4 completed.",
+  "\nModel A residual skewness:", round(residual_assumptions_audit$residual_skewness[1], 3),
+  "\nModel B residual skewness:", round(residual_assumptions_audit$residual_skewness[2], 3),
+  "\nModel A Shapiro-Wilk W:", round(residual_assumptions_audit$shapiro_W[1], 4),
+  "\nModel B Shapiro-Wilk W:", round(residual_assumptions_audit$shapiro_W[2], 4),
+  "\nDiagnostic charts saved:", length(diagnostic_charts),
+  "\n"
+)
