@@ -141,3 +141,157 @@ cat("Sensitivity-check records:", nrow(price_data_all_records), "\n")
 cat("Model A formula:", deparse(model_a_formula), "\n")
 cat("Model B formula:", deparse(model_b_formula), "\n")
 cat("Significance level:", alpha, "\n")
+
+
+# SECTION 2: Checking candidate models on the 2019-2023 development split
+
+# Checking development datasets and formulas
+stopifnot(
+  exists("train_dev_2019_2023"),
+  exists("val_2024"),
+  exists("model_a_formula"),
+  exists("model_b_formula"),
+  exists("output_dir")
+)
+
+# Defining error metric helper (error = predicted - actual)
+calculate_error_metrics <- function(actual, predicted, model_name, split_name) {
+
+  stopifnot(
+    is.numeric(actual),
+    is.numeric(predicted),
+    length(actual) == length(predicted),
+    length(actual) > 0,
+    !anyNA(actual),
+    !anyNA(predicted),
+    all(is.finite(actual)),
+    all(is.finite(predicted)),
+    all(actual > 0)
+  )
+
+  err <- predicted - actual
+  abs_err <- abs(err)
+  pct_err <- 100 * abs_err / actual
+
+  data.frame(
+    split = split_name,
+    model = model_name,
+    records = length(actual),
+    mean_actual_eur = mean(actual),
+    median_actual_eur = median(actual),
+    mean_predicted_eur = mean(predicted),
+    median_predicted_eur = median(predicted),
+    mae_eur = mean(abs_err),
+    rmse_eur = sqrt(mean(err^2)),
+    mpe_eur = mean(err),
+    medae_eur = median(abs_err),
+    mape_percent = mean(pct_err),
+    mdape_percent = median(pct_err),
+    row.names = NULL
+  )
+}
+
+# Calculating 2019-2023 baseline benchmarks
+dev_mean_price <- mean(train_dev_2019_2023$price_eur)
+dev_median_price <- median(train_dev_2019_2023$price_eur)
+
+# Fitting Model A and Model B on 2019-2023 records
+dev_model_a <- lm(
+  model_a_formula,
+  data = train_dev_2019_2023
+)
+
+dev_model_b <- lm(
+  model_b_formula,
+  data = train_dev_2019_2023
+)
+
+dev_summary_a <- summary(dev_model_a)
+dev_summary_b <- summary(dev_model_b)
+
+# Calculating Duan smearing factor from 2019-2023 log residuals
+dev_smearing_factor <- mean(exp(residuals(dev_model_b)))
+
+cat("\nDevelopment split (2019-2023) training summaries:\n")
+cat("Baseline mean (EUR):", round(dev_mean_price, 2), "\n")
+cat("Baseline median (EUR):", round(dev_median_price, 2), "\n")
+cat("Model A R-squared:", round(dev_summary_a$r.squared, 5), "\n")
+cat("Model B R-squared (log scale):", round(dev_summary_b$r.squared, 5), "\n")
+cat("Model B Duan smearing factor:", round(dev_smearing_factor, 6), "\n")
+
+# Generating predictions on 2024 validation records
+val_2024_pred_mean <- rep(dev_mean_price, nrow(val_2024))
+val_2024_pred_median <- rep(dev_median_price, nrow(val_2024))
+val_2024_pred_model_a <- unname(predict(dev_model_a, newdata = val_2024))
+
+val_2024_pred_log_b <- unname(predict(dev_model_b, newdata = val_2024))
+val_2024_pred_model_b_exp <- exp(val_2024_pred_log_b)
+val_2024_pred_model_b_smear <- val_2024_pred_model_b_exp * dev_smearing_factor
+
+# Comparing 2024 validation errors across candidate models
+dev_validation_comparison <- rbind(
+  calculate_error_metrics(
+    val_2024$price_eur,
+    val_2024_pred_mean,
+    "Baseline (Mean)",
+    "2024 validation (trained on 2019-2023)"
+  ),
+  calculate_error_metrics(
+    val_2024$price_eur,
+    val_2024_pred_median,
+    "Baseline (Median)",
+    "2024 validation (trained on 2019-2023)"
+  ),
+  calculate_error_metrics(
+    val_2024$price_eur,
+    val_2024_pred_model_a,
+    "Model A (Linear price)",
+    "2024 validation (trained on 2019-2023)"
+  ),
+  calculate_error_metrics(
+    val_2024$price_eur,
+    val_2024_pred_model_b_exp,
+    "Model B (Log-linear, exp back-transform)",
+    "2024 validation (trained on 2019-2023)"
+  ),
+  calculate_error_metrics(
+    val_2024$price_eur,
+    val_2024_pred_model_b_smear,
+    "Model B (Log-linear, Duan smearing)",
+    "2024 validation (trained on 2019-2023)"
+  )
+)
+
+# Adding training R-squared values from 2019-2023 fits
+dev_validation_comparison$train_r_squared <- c(
+  NA_real_,
+  NA_real_,
+  dev_summary_a$r.squared,
+  dev_summary_b$r.squared,
+  dev_summary_b$r.squared
+)
+
+dev_validation_comparison$train_adj_r_squared <- c(
+  NA_real_,
+  NA_real_,
+  dev_summary_a$adj.r.squared,
+  dev_summary_b$adj.r.squared,
+  dev_summary_b$adj.r.squared
+)
+
+cat("\n2024 validation results (models trained on 2019-2023):\n")
+print(dev_validation_comparison, row.names = FALSE, digits = 6)
+
+# Saving development split comparison
+write.csv(
+  dev_validation_comparison,
+  file.path(output_dir, "07_development_split_2019_2023_vs_2024.csv"),
+  row.names = FALSE
+)
+
+cat(
+  "\nSection 2 completed.",
+  "\n2019-2023 training records:", nrow(train_dev_2019_2023),
+  "\n2024 validation records:", nrow(val_2024),
+  "\n"
+)
