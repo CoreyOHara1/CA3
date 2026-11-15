@@ -842,3 +842,227 @@ cat(
   "\nDiagnostic charts saved:", length(diagnostic_charts),
   "\n"
 )
+
+
+# SECTION 5: Checking influential records and residuals over time
+
+# Checking fitted models, training dataset and folders
+stopifnot(
+  exists("model_a"),
+  exists("model_b"),
+  exists("train_2019_2024"),
+  exists("output_dir"),
+  exists("figures_dir"),
+  exists("chart_colour"),
+  exists("secondary_colour")
+)
+
+# Calculating leverage and Cook's distance for Model A and Model B
+hat_a <- hatvalues(model_a)
+cooks_a <- cooks.distance(model_a)
+
+hat_b <- hatvalues(model_b)
+cooks_b <- cooks.distance(model_b)
+
+# Setting standard 4/n threshold for Cook's distance
+n_train <- nrow(train_2019_2024)
+cooks_cutoff <- 4 / n_train
+
+# Checking lag-1 residual correlation in chronological sale-date order
+date_order <- order(train_2019_2024$sale_date)
+lag1_acf_a <- acf(residuals(model_a)[date_order], lag.max = 1, plot = FALSE)$acf[2]
+lag1_acf_b <- acf(residuals(model_b)[date_order], lag.max = 1, plot = FALSE)$acf[2]
+
+cat("\nInfluence and temporal residual checks (2019-2024 training set):\n")
+cat("Cook's distance 4/n threshold:", round(cooks_cutoff, 6), "\n")
+cat("Model A records with Cook's D > 4/n:", sum(cooks_a > cooks_cutoff), "\n")
+cat("Model A max Cook's D:", round(max(cooks_a), 5), "\n")
+cat("Model B records with Cook's D > 4/n:", sum(cooks_b > cooks_cutoff), "\n")
+cat("Model B max Cook's D:", round(max(cooks_b), 5), "\n")
+cat("Model A lag-1 residual ACF:", round(lag1_acf_a, 4), "\n")
+cat("Model B lag-1 residual ACF:", round(lag1_acf_b, 4), "\n")
+
+# Extracting top 10 influential observations for Model A and Model B
+top_idx_a <- head(order(cooks_a, decreasing = TRUE), 10)
+top_idx_b <- head(order(cooks_b, decreasing = TRUE), 10)
+
+build_influence_table <- function(indices, model_label, fit_vals, res_vals, std_res, hat_vals, cooks_vals) {
+  data.frame(
+    model = model_label,
+    rank = seq_along(indices),
+    train_row = indices,
+    sale_date = format(train_2019_2024$sale_date[indices], "%Y-%m-%d"),
+    year = train_2019_2024$year[indices],
+    quarter = as.character(train_2019_2024$quarter[indices]),
+    time_years = train_2019_2024$time_years[indices],
+    price_eur = train_2019_2024$price_eur[indices],
+    log_price_eur = train_2019_2024$log_price_eur[indices],
+    fitted_value = fit_vals[indices],
+    residual = res_vals[indices],
+    std_residual = std_res[indices],
+    leverage = hat_vals[indices],
+    cooks_distance = cooks_vals[indices],
+    exceeds_4_over_n = cooks_vals[indices] > cooks_cutoff,
+    row.names = NULL
+  )
+}
+
+influential_observations_summary <- rbind(
+  build_influence_table(
+    top_idx_a,
+    "Model A (Linear price)",
+    fitted(model_a),
+    residuals(model_a),
+    rstandard(model_a),
+    hat_a,
+    cooks_a
+  ),
+  build_influence_table(
+    top_idx_b,
+    "Model B (Log-linear price)",
+    fitted(model_b),
+    residuals(model_b),
+    rstandard(model_b),
+    hat_b,
+    cooks_b
+  )
+)
+
+cat("\nTop 10 influential training records per model:\n")
+print(influential_observations_summary, row.names = FALSE, digits = 6)
+
+# Saving influential observations table
+write.csv(
+  influential_observations_summary,
+  file.path(output_dir, "11_influential_observations_summary.csv"),
+  row.names = FALSE
+)
+
+
+# Plotting Cook's distance for Model A and Model B
+
+fig6_path <- file.path(
+  figures_dir,
+  "06_cooks_distance_and_influence.png"
+)
+
+png(
+  fig6_path,
+  width = 2400,
+  height = 1800,
+  res = 180
+)
+
+par(
+  mfrow = c(2, 1),
+  mar = c(4.5, 5, 3.5, 1.5),
+  las = 1
+)
+
+plot(
+  seq_len(n_train),
+  cooks_a,
+  type = "h",
+  col = adjustcolor(chart_colour, alpha.f = 0.75),
+  main = paste0(
+    "Model A: Cook's distance across training records (4/n = ",
+    round(cooks_cutoff, 5),
+    ")"
+  ),
+  xlab = "Training observation index (2019-2024)",
+  ylab = "Cook's distance"
+)
+abline(h = cooks_cutoff, col = "black", lwd = 2, lty = 2)
+
+plot(
+  seq_len(n_train),
+  cooks_b,
+  type = "h",
+  col = adjustcolor(secondary_colour, alpha.f = 0.75),
+  main = paste0(
+    "Model B: Cook's distance across training records (4/n = ",
+    round(cooks_cutoff, 5),
+    ")"
+  ),
+  xlab = "Training observation index (2019-2024)",
+  ylab = "Cook's distance"
+)
+abline(h = cooks_cutoff, col = "black", lwd = 2, lty = 2)
+
+dev.off()
+
+
+# Plotting standardised residuals over sale date for Model A and Model B
+
+fig7_path <- file.path(
+  figures_dir,
+  "07_residuals_over_sale_date.png"
+)
+
+png(
+  fig7_path,
+  width = 2400,
+  height = 1800,
+  res = 180
+)
+
+par(
+  mfrow = c(2, 1),
+  mar = c(4.5, 5, 3.5, 1.5),
+  las = 1
+)
+
+std_res_a <- rstandard(model_a)
+std_res_b <- rstandard(model_b)
+
+plot(
+  x = train_2019_2024$sale_date,
+  y = std_res_a,
+  pch = 16,
+  cex = 0.45,
+  col = adjustcolor(chart_colour, alpha.f = 0.4),
+  main = "Model A: Standardised residuals over sale date (2019-2024)",
+  xlab = "Sale date",
+  ylab = "Standardised residual"
+)
+abline(h = 0, col = "black", lwd = 2, lty = 2)
+lines(
+  lowess(as.numeric(train_2019_2024$sale_date), std_res_a),
+  col = secondary_colour,
+  lwd = 2
+)
+
+plot(
+  x = train_2019_2024$sale_date,
+  y = std_res_b,
+  pch = 16,
+  cex = 0.45,
+  col = adjustcolor(secondary_colour, alpha.f = 0.4),
+  main = "Model B: Standardised residuals over sale date (2019-2024)",
+  xlab = "Sale date",
+  ylab = "Standardised residual"
+)
+abline(h = 0, col = "black", lwd = 2, lty = 2)
+lines(
+  lowess(as.numeric(train_2019_2024$sale_date), std_res_b),
+  col = chart_colour,
+  lwd = 2
+)
+
+dev.off()
+
+# Checking saved influence and temporal charts
+influence_charts <- c(fig6_path, fig7_path)
+
+stopifnot(
+  all(file.exists(influence_charts)),
+  all(file.info(influence_charts)$size > 0)
+)
+
+cat(
+  "\nSection 5 completed.",
+  "\nModel A records with Cook's D > 4/n:", sum(cooks_a > cooks_cutoff),
+  "\nModel B records with Cook's D > 4/n:", sum(cooks_b > cooks_cutoff),
+  "\nInfluence and temporal charts saved:", length(influence_charts),
+  "\n"
+)
