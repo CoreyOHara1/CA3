@@ -1066,3 +1066,150 @@ cat(
   "\nInfluence and temporal charts saved:", length(influence_charts),
   "\n"
 )
+
+
+# SECTION 6: Checking sensitivity to influential records and duplicate policy
+
+# Checking fitted models, training datasets and Cook's distance objects
+stopifnot(
+  exists("model_a"),
+  exists("model_b"),
+  exists("model_a_formula"),
+  exists("model_b_formula"),
+  exists("train_2019_2024"),
+  exists("train_2019_2024_all_records"),
+  exists("cooks_a"),
+  exists("cooks_b"),
+  exists("cooks_cutoff"),
+  exists("top_idx_a"),
+  exists("top_idx_b"),
+  exists("output_dir")
+)
+
+# Refitting Model A and Model B without top 10 Cook's distance records
+model_a_no_top10 <- lm(
+  model_a_formula,
+  data = train_2019_2024[-top_idx_a, ]
+)
+
+model_b_no_top10 <- lm(
+  model_b_formula,
+  data = train_2019_2024[-top_idx_b, ]
+)
+
+# Refitting Model A and Model B without records exceeding 4/n
+model_a_no_4n <- lm(
+  model_a_formula,
+  data = train_2019_2024[cooks_a <= cooks_cutoff, ]
+)
+
+model_b_no_4n <- lm(
+  model_b_formula,
+  data = train_2019_2024[cooks_b <= cooks_cutoff, ]
+)
+
+# Refitting Model A and Model B with all exact copies retained
+model_a_all_records <- lm(
+  model_a_formula,
+  data = train_2019_2024_all_records
+)
+
+model_b_all_records <- lm(
+  model_b_formula,
+  data = train_2019_2024_all_records
+)
+
+# Defining helper to extract sensitivity comparison row
+extract_sensitivity_row <- function(fit_obj, model_label, spec_label, is_log_model) {
+  fit_sum <- summary(fit_obj)
+  coefs <- fit_sum$coefficients
+
+  data.frame(
+    model = model_label,
+    specification = spec_label,
+    records = length(residuals(fit_obj)),
+    r_squared = fit_sum$r.squared,
+    adj_r_squared = fit_sum$adj.r.squared,
+    residual_se = fit_sum$sigma,
+    intercept = unname(coefs["(Intercept)", "Estimate"]),
+    slope_time_years = unname(coefs["time_years", "Estimate"]),
+    time_years_p_value = unname(coefs["time_years", "Pr(>|t|)"]),
+    coef_quarterQ2 = unname(coefs["quarterQ2", "Estimate"]),
+    coef_quarterQ3 = unname(coefs["quarterQ3", "Estimate"]),
+    coef_quarterQ4 = unname(coefs["quarterQ4", "Estimate"]),
+    smearing_factor = ifelse(
+      is_log_model,
+      mean(exp(residuals(fit_obj))),
+      NA_real_
+    ),
+    row.names = NULL
+  )
+}
+
+# Combining sensitivity fits across Model A and Model B
+influence_and_duplicate_sensitivity <- rbind(
+  extract_sensitivity_row(
+    model_a,
+    "Model A (Linear price)",
+    "Main training set (first exact copy retained)",
+    FALSE
+  ),
+  extract_sensitivity_row(
+    model_a_no_top10,
+    "Model A (Linear price)",
+    "Excluding top 10 Cook's D records",
+    FALSE
+  ),
+  extract_sensitivity_row(
+    model_a_no_4n,
+    "Model A (Linear price)",
+    "Excluding all Cook's D > 4/n records",
+    FALSE
+  ),
+  extract_sensitivity_row(
+    model_a_all_records,
+    "Model A (Linear price)",
+    "All formatted records (exact copies retained)",
+    FALSE
+  ),
+  extract_sensitivity_row(
+    model_b,
+    "Model B (Log-linear price)",
+    "Main training set (first exact copy retained)",
+    TRUE
+  ),
+  extract_sensitivity_row(
+    model_b_no_top10,
+    "Model B (Log-linear price)",
+    "Excluding top 10 Cook's D records",
+    TRUE
+  ),
+  extract_sensitivity_row(
+    model_b_no_4n,
+    "Model B (Log-linear price)",
+    "Excluding all Cook's D > 4/n records",
+    TRUE
+  ),
+  extract_sensitivity_row(
+    model_b_all_records,
+    "Model B (Log-linear price)",
+    "All formatted records (exact copies retained)",
+    TRUE
+  )
+)
+
+cat("\nSensitivity analysis: influential records and duplicate policy:\n")
+print(influence_and_duplicate_sensitivity, row.names = FALSE, digits = 6)
+
+# Saving sensitivity comparison table
+write.csv(
+  influence_and_duplicate_sensitivity,
+  file.path(output_dir, "12_influence_and_duplicate_sensitivity.csv"),
+  row.names = FALSE
+)
+
+cat(
+  "\nSection 6 completed.",
+  "\nSensitivity specifications compared:", nrow(influence_and_duplicate_sensitivity),
+  "\n"
+)
