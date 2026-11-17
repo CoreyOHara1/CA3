@@ -1704,3 +1704,186 @@ cat(
   "\nValidation charts saved:", length(validation_charts_2025),
   "\n"
 )
+
+
+# SECTION 8: Appraising systematic test cases from held-out 2025 records
+
+# Checking held-out 2025 dataset, fitted models and parameters
+stopifnot(
+  exists("test_2025"),
+  exists("model_a"),
+  exists("model_b"),
+  exists("smearing_factor_b"),
+  exists("alpha"),
+  exists("output_dir")
+)
+
+# Calculating 95% PI coverage across all 675 held-out 2025 records
+pi_all_2025_a <- predict(
+  model_a,
+  newdata = test_2025,
+  interval = "prediction",
+  level = 1 - alpha
+)
+
+pi_all_2025_log_b <- predict(
+  model_b,
+  newdata = test_2025,
+  interval = "prediction",
+  level = 1 - alpha
+)
+pi_all_2025_b_exp <- exp(pi_all_2025_log_b)
+
+pi_cov_2025_a <- mean(
+  test_2025$price_eur >= pi_all_2025_a[, "lwr"] &
+    test_2025$price_eur <= pi_all_2025_a[, "upr"]
+)
+
+pi_cov_2025_b <- mean(
+  test_2025$price_eur >= pi_all_2025_b_exp[, "lwr"] &
+    test_2025$price_eur <= pi_all_2025_b_exp[, "upr"]
+)
+
+cat("\nFull 2025 held-out 95% prediction interval coverage (n = 675):\n")
+cat("Model A 95% PI coverage:", round(100 * pi_cov_2025_a, 2), "%\n")
+cat("Model B (exp) 95% PI coverage:", round(100 * pi_cov_2025_b, 2), "%\n")
+
+# Selecting 5 percentile records per quarter across held-out 2025 sales
+percentile_probs <- c(0.01, 0.25, 0.50, 0.75, 0.99)
+percentile_labels <- c(
+  "P01 (Lower tail)",
+  "P25 (Lower quartile)",
+  "P50 (Median)",
+  "P75 (Upper quartile)",
+  "P99 (Upper tail)"
+)
+
+case_rows_list <- list()
+
+for (q_lvl in levels(test_2025$quarter)) {
+  q_sub <- subset(test_2025, quarter == q_lvl)
+  q_ord <- order(q_sub$price_eur, q_sub$sale_date)
+  q_sub_sorted <- q_sub[q_ord, ]
+
+  n_q <- nrow(q_sub_sorted)
+  pick_pos <- round(1 + percentile_probs * (n_q - 1))
+
+  stopifnot(
+    length(unique(pick_pos)) == length(percentile_probs),
+    all(pick_pos >= 1),
+    all(pick_pos <= n_q)
+  )
+
+  picked_df <- q_sub_sorted[pick_pos, ]
+  picked_df$percentile_band <- percentile_labels
+  picked_df$quarter_records <- n_q
+  picked_df$quarter_rank <- pick_pos
+
+  case_rows_list[[q_lvl]] <- picked_df
+}
+
+selected_2025_cases <- do.call(rbind, case_rows_list)
+rownames(selected_2025_cases) <- NULL
+
+stopifnot(
+  nrow(selected_2025_cases) == 20
+)
+
+# Computing Model A predictions, 95% CIs and 95% PIs on selected 2025 cases
+ci_cases_a <- predict(
+  model_a,
+  newdata = selected_2025_cases,
+  interval = "confidence",
+  level = 1 - alpha
+)
+
+pi_cases_a <- predict(
+  model_a,
+  newdata = selected_2025_cases,
+  interval = "prediction",
+  level = 1 - alpha
+)
+
+# Computing Model B predictions, 95% CIs and 95% PIs on selected 2025 cases
+ci_cases_log_b <- predict(
+  model_b,
+  newdata = selected_2025_cases,
+  interval = "confidence",
+  level = 1 - alpha
+)
+
+pi_cases_log_b <- predict(
+  model_b,
+  newdata = selected_2025_cases,
+  interval = "prediction",
+  level = 1 - alpha
+)
+
+ci_cases_b_exp <- exp(ci_cases_log_b)
+pi_cases_b_exp <- exp(pi_cases_log_b)
+
+pred_cases_a <- unname(ci_cases_a[, "fit"])
+pred_cases_b_exp <- unname(ci_cases_b_exp[, "fit"])
+pred_cases_b_smear <- pred_cases_b_exp * smearing_factor_b
+
+actual_cases_eur <- selected_2025_cases$price_eur
+
+# Building 2025 systematic test-case comparison table
+forecast_2025_observed_test_cases <- data.frame(
+  case_id = seq_len(nrow(selected_2025_cases)),
+  quarter = as.character(selected_2025_cases$quarter),
+  percentile_band = selected_2025_cases$percentile_band,
+  quarter_rank = selected_2025_cases$quarter_rank,
+  quarter_records = selected_2025_cases$quarter_records,
+  sale_date = format(selected_2025_cases$sale_date, "%Y-%m-%d"),
+  time_years = selected_2025_cases$time_years,
+  actual_price_eur = actual_cases_eur,
+  model_a_pred_eur = pred_cases_a,
+  model_a_ci_95_lower = unname(ci_cases_a[, "lwr"]),
+  model_a_ci_95_upper = unname(ci_cases_a[, "upr"]),
+  model_a_pi_95_lower = unname(pi_cases_a[, "lwr"]),
+  model_a_pi_95_upper = unname(pi_cases_a[, "upr"]),
+  model_a_error_eur = pred_cases_a - actual_cases_eur,
+  model_a_abs_pct_error = 100 * abs(pred_cases_a - actual_cases_eur) / actual_cases_eur,
+  model_a_in_pi_95 = (
+    actual_cases_eur >= pi_cases_a[, "lwr"] &
+      actual_cases_eur <= pi_cases_a[, "upr"]
+  ),
+  model_b_exp_pred_eur = pred_cases_b_exp,
+  model_b_exp_ci_95_lower = unname(ci_cases_b_exp[, "lwr"]),
+  model_b_exp_ci_95_upper = unname(ci_cases_b_exp[, "upr"]),
+  model_b_exp_pi_95_lower = unname(pi_cases_b_exp[, "lwr"]),
+  model_b_exp_pi_95_upper = unname(pi_cases_b_exp[, "upr"]),
+  model_b_exp_error_eur = pred_cases_b_exp - actual_cases_eur,
+  model_b_exp_abs_pct_error = (
+    100 * abs(pred_cases_b_exp - actual_cases_eur) / actual_cases_eur
+  ),
+  model_b_in_pi_95 = (
+    actual_cases_eur >= pi_cases_b_exp[, "lwr"] &
+      actual_cases_eur <= pi_cases_b_exp[, "upr"]
+  ),
+  model_b_smear_pred_eur = pred_cases_b_smear,
+  model_b_smear_error_eur = pred_cases_b_smear - actual_cases_eur,
+  model_b_smear_abs_pct_error = (
+    100 * abs(pred_cases_b_smear - actual_cases_eur) / actual_cases_eur
+  ),
+  row.names = NULL
+)
+
+cat("\nObserved 2025 test cases appraisal (20 systematic percentile cases):\n")
+print(forecast_2025_observed_test_cases, row.names = FALSE, digits = 6)
+
+# Saving 2025 observed test-cases table
+write.csv(
+  forecast_2025_observed_test_cases,
+  file.path(output_dir, "15_forecast_2025_observed_test_cases.csv"),
+  row.names = FALSE
+)
+
+cat(
+  "\nSection 8 completed.",
+  "\nSystematic 2025 test cases appraised:", nrow(forecast_2025_observed_test_cases),
+  "\nModel A cases within 95% PI:", sum(forecast_2025_observed_test_cases$model_a_in_pi_95), "of 20",
+  "\nModel B cases within 95% PI:", sum(forecast_2025_observed_test_cases$model_b_in_pi_95), "of 20",
+  "\n"
+)
