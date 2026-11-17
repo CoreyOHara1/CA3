@@ -2271,3 +2271,77 @@ cat(
   "\nForecast chart saved: 1",
   "\n"
 )
+
+
+# SECTION 10: Saving modelling objects, session info and workspace
+
+# Checking required outputs folder and model objects
+stopifnot(
+  exists("output_dir"),
+  exists("model_a"),
+  exists("model_b"),
+  exists("final_model_a"),
+  exists("final_model_b"),
+  exists("smearing_factor_b"),
+  exists("final_smearing_factor_b"),
+  exists("candidate_model_coefficients"),
+  exists("candidate_model_fit_summary"),
+  exists("heldout_2025_validation_metrics"),
+  exists("heldout_2025_quarterly_errors"),
+  exists("forecast_2025_observed_test_cases"),
+  exists("final_refitted_models_2019_2025"),
+  exists("forecast_2026_hypothetical_scenarios")
+)
+
+# Compiling modelling objects list for persistence
+modelling_objects <- list(
+  model_a_train_2019_2024 = model_a,
+  model_b_train_2019_2024 = model_b,
+  final_model_a_2019_2025 = final_model_a,
+  final_model_b_2019_2025 = final_model_b,
+  smearing_factor_train_2019_2024 = smearing_factor_b,
+  smearing_factor_final_2019_2025 = final_smearing_factor_b,
+  candidate_coefficients = candidate_model_coefficients,
+  candidate_fit_summary = candidate_model_fit_summary,
+  heldout_2025_validation_metrics = heldout_2025_validation_metrics,
+  heldout_2025_quarterly_errors = heldout_2025_quarterly_errors,
+  forecast_2025_test_cases = forecast_2025_observed_test_cases,
+  final_refitted_summary = final_refitted_models_2019_2025,
+  forecast_2026_scenarios = forecast_2026_hypothetical_scenarios
+)
+
+# Saving compiled modelling objects RDS file
+saveRDS(
+  modelling_objects,
+  file.path(output_dir, "18_modelling_objects.rds")
+)
+
+# Capturing and saving session info
+session_info_path <- file.path(output_dir, "19_session_info.txt")
+writeLines(
+  capture.output(sessionInfo()),
+  con = session_info_path
+)
+
+# Saving full modelling workspace image
+save.image(
+  file = file.path(output_dir, "20_final_modelling_workspace.RData")
+)
+
+# Checking saved workspace and export artefacts
+stopifnot(
+  file.exists(file.path(output_dir, "18_modelling_objects.rds")),
+  file.exists(session_info_path),
+  file.exists(file.path(output_dir, "20_final_modelling_workspace.RData")),
+  file.info(file.path(output_dir, "18_modelling_objects.rds"))$size > 0,
+  file.info(session_info_path)$size > 0,
+  file.info(file.path(output_dir, "20_final_modelling_workspace.RData"))$size > 0
+)
+
+cat(
+  "\nSection 10 completed.",
+  "\nModelling objects saved to output/18_modelling_objects.rds",
+  "\nSession info captured in output/19_session_info.txt",
+  "\nFinal workspace saved to output/20_final_modelling_workspace.RData",
+  "\nAll CA3 modelling and validation tasks completed successfully.\n"
+)
