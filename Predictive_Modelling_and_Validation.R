@@ -1887,3 +1887,387 @@ cat(
   "\nModel B cases within 95% PI:", sum(forecast_2025_observed_test_cases$model_b_in_pi_95), "of 20",
   "\n"
 )
+
+
+# SECTION 9: Refitting on 2019-2025 records and forecasting 2026 scenarios
+
+# Checking eligible full dataset, formulas, parameters and folders
+stopifnot(
+  exists("price_data"),
+  exists("model_a_formula"),
+  exists("model_b_formula"),
+  exists("origin_date"),
+  exists("days_per_year"),
+  exists("alpha"),
+  exists("output_dir"),
+  exists("figures_dir"),
+  exists("chart_colour"),
+  exists("secondary_colour")
+)
+
+# Refitting Model A and Model B on all eligible 2019-2025 records
+final_model_a <- lm(
+  model_a_formula,
+  data = price_data
+)
+
+final_model_b <- lm(
+  model_b_formula,
+  data = price_data
+)
+
+final_summary_a <- summary(final_model_a)
+final_summary_b <- summary(final_model_b)
+
+final_confint_a <- confint(final_model_a, level = 1 - alpha)
+final_confint_b <- confint(final_model_b, level = 1 - alpha)
+
+# Calculating Duan smearing and log-normal factors on full 2019-2025 residuals
+final_smearing_factor_b <- mean(exp(residuals(final_model_b)))
+final_lognormal_factor_b <- exp((final_summary_b$sigma^2) / 2)
+
+cat("\nFinal refitted Model A summary (2019-2025 full dataset, n = 5,070):\n")
+print(final_summary_a)
+
+cat("\nFinal refitted Model B summary (2019-2025 full dataset, n = 5,070):\n")
+print(final_summary_b)
+
+# Extracting coefficient table for final refitted models
+final_coef_mat_a <- final_summary_a$coefficients
+final_coef_mat_b <- final_summary_b$coefficients
+
+final_coef_table_a <- data.frame(
+  model = "Model A (Linear price)",
+  dataset = "price_data (2019-2025)",
+  records = nrow(price_data),
+  response_scale = "price_eur",
+  term = rownames(final_coef_mat_a),
+  estimate = final_coef_mat_a[, "Estimate"],
+  std_error = final_coef_mat_a[, "Std. Error"],
+  t_value = final_coef_mat_a[, "t value"],
+  p_value = final_coef_mat_a[, "Pr(>|t|)"],
+  ci_95_lower = final_confint_a[, 1],
+  ci_95_upper = final_confint_a[, 2],
+  exp_estimate = NA_real_,
+  exp_ci_95_lower = NA_real_,
+  exp_ci_95_upper = NA_real_,
+  percent_change_estimate = NA_real_,
+  r_squared = final_summary_a$r.squared,
+  adj_r_squared = final_summary_a$adj.r.squared,
+  residual_se = final_summary_a$sigma,
+  smearing_factor = NA_real_,
+  row.names = NULL
+)
+
+final_is_slope_b <- rownames(final_coef_mat_b) != "(Intercept)"
+
+final_coef_table_b <- data.frame(
+  model = "Model B (Log-linear price)",
+  dataset = "price_data (2019-2025)",
+  records = nrow(price_data),
+  response_scale = "log_price_eur",
+  term = rownames(final_coef_mat_b),
+  estimate = final_coef_mat_b[, "Estimate"],
+  std_error = final_coef_mat_b[, "Std. Error"],
+  t_value = final_coef_mat_b[, "t value"],
+  p_value = final_coef_mat_b[, "Pr(>|t|)"],
+  ci_95_lower = final_confint_b[, 1],
+  ci_95_upper = final_confint_b[, 2],
+  exp_estimate = exp(final_coef_mat_b[, "Estimate"]),
+  exp_ci_95_lower = exp(final_confint_b[, 1]),
+  exp_ci_95_upper = exp(final_confint_b[, 2]),
+  percent_change_estimate = ifelse(
+    final_is_slope_b,
+    100 * (exp(final_coef_mat_b[, "Estimate"]) - 1),
+    NA_real_
+  ),
+  r_squared = final_summary_b$r.squared,
+  adj_r_squared = final_summary_b$adj.r.squared,
+  residual_se = final_summary_b$sigma,
+  smearing_factor = final_smearing_factor_b,
+  row.names = NULL
+)
+
+final_refitted_models_2019_2025 <- rbind(
+  final_coef_table_a,
+  final_coef_table_b
+)
+
+cat("\nFinal refitted model coefficients (2019-2025):\n")
+print(final_refitted_models_2019_2025, row.names = FALSE, digits = 6)
+
+# Saving final refitted models table
+write.csv(
+  final_refitted_models_2019_2025,
+  file.path(output_dir, "16_final_refitted_models_2019_2025.csv"),
+  row.names = FALSE
+)
+
+# Constructing 2026 hypothetical forecasting scenarios
+scenario_dates <- as.Date(c(
+  "2026-01-15",
+  "2026-02-15",
+  "2026-05-15",
+  "2026-08-15",
+  "2026-11-15",
+  "2026-12-15"
+))
+
+scenario_quarters <- factor(
+  c("Q1", "Q1", "Q2", "Q3", "Q4", "Q4"),
+  levels = levels(price_data$quarter)
+)
+
+scenario_descriptions <- c(
+  "2026 Q1 Early (Start of year)",
+  "2026 Q1 Mid-quarter",
+  "2026 Q2 Mid-quarter",
+  "2026 Q3 Mid-quarter",
+  "2026 Q4 Mid-quarter",
+  "2026 Q4 Late (End of year)"
+)
+
+scenarios_2026 <- data.frame(
+  scenario_id = seq_along(scenario_dates),
+  description = scenario_descriptions,
+  forecast_date = scenario_dates,
+  time_years = as.numeric(scenario_dates - origin_date) / days_per_year,
+  quarter = scenario_quarters
+)
+
+# Calculating Model A predictions, 95% CIs and 95% PIs for 2026 scenarios
+ci_2026_a <- predict(
+  final_model_a,
+  newdata = scenarios_2026,
+  interval = "confidence",
+  level = 1 - alpha
+)
+
+pi_2026_a <- predict(
+  final_model_a,
+  newdata = scenarios_2026,
+  interval = "prediction",
+  level = 1 - alpha
+)
+
+# Calculating Model B predictions, 95% CIs and 95% PIs for 2026 scenarios
+ci_2026_log_b <- predict(
+  final_model_b,
+  newdata = scenarios_2026,
+  interval = "confidence",
+  level = 1 - alpha
+)
+
+pi_2026_log_b <- predict(
+  final_model_b,
+  newdata = scenarios_2026,
+  interval = "prediction",
+  level = 1 - alpha
+)
+
+ci_2026_b_exp <- exp(ci_2026_log_b)
+pi_2026_b_exp <- exp(pi_2026_log_b)
+
+pred_2026_a <- unname(ci_2026_a[, "fit"])
+pred_2026_b_exp <- unname(ci_2026_b_exp[, "fit"])
+pred_2026_b_smear <- pred_2026_b_exp * final_smearing_factor_b
+
+# Building 2026 hypothetical scenarios forecasting table
+forecast_2026_hypothetical_scenarios <- data.frame(
+  scenario_id = scenarios_2026$scenario_id,
+  description = scenarios_2026$description,
+  forecast_date = format(scenarios_2026$forecast_date, "%Y-%m-%d"),
+  time_years = scenarios_2026$time_years,
+  quarter = as.character(scenarios_2026$quarter),
+  model_a_pred_eur = pred_2026_a,
+  model_a_ci_95_lower = unname(ci_2026_a[, "lwr"]),
+  model_a_ci_95_upper = unname(ci_2026_a[, "upr"]),
+  model_a_pi_95_lower = unname(pi_2026_a[, "lwr"]),
+  model_a_pi_95_upper = unname(pi_2026_a[, "upr"]),
+  model_b_exp_pred_eur = pred_2026_b_exp,
+  model_b_exp_ci_95_lower = unname(ci_2026_b_exp[, "lwr"]),
+  model_b_exp_ci_95_upper = unname(ci_2026_b_exp[, "upr"]),
+  model_b_exp_pi_95_lower = unname(pi_2026_b_exp[, "lwr"]),
+  model_b_exp_pi_95_upper = unname(pi_2026_b_exp[, "upr"]),
+  model_b_smear_pred_eur = pred_2026_b_smear,
+  model_b_smear_ci_95_lower = unname(ci_2026_b_exp[, "lwr"]) * final_smearing_factor_b,
+  model_b_smear_ci_95_upper = unname(ci_2026_b_exp[, "upr"]) * final_smearing_factor_b,
+  model_b_smear_pi_95_lower = unname(pi_2026_b_exp[, "lwr"]) * final_smearing_factor_b,
+  model_b_smear_pi_95_upper = unname(pi_2026_b_exp[, "upr"]) * final_smearing_factor_b,
+  row.names = NULL
+)
+
+cat("\nHypothetical 2026 forecasting scenarios:\n")
+print(forecast_2026_hypothetical_scenarios, row.names = FALSE, digits = 6)
+
+# Saving 2026 hypothetical scenarios table
+write.csv(
+  forecast_2026_hypothetical_scenarios,
+  file.path(output_dir, "17_forecast_2026_hypothetical_scenarios.csv"),
+  row.names = FALSE
+)
+
+# Saving Chart 11: 2019-2025 actual sales and 2026 forecast trajectories
+fig11_path <- file.path(
+  figures_dir,
+  "11_forecast_trajectory_and_2026_scenarios.png"
+)
+
+png(
+  fig11_path,
+  width = 2400,
+  height = 1800,
+  res = 180
+)
+
+par(
+  mfrow = c(2, 1),
+  mar = c(4.5, 5.5, 3.5, 1.5),
+  las = 1
+)
+
+# Generating continuous trajectory dates across 2019-2026
+traj_dates <- seq(
+  from = min(price_data$sale_date),
+  to = as.Date("2026-12-31"),
+  by = "week"
+)
+
+traj_quarters <- factor(
+  paste0("Q", (as.POSIXlt(traj_dates)$mon %/% 3) + 1),
+  levels = levels(price_data$quarter)
+)
+
+traj_df <- data.frame(
+  sale_date = traj_dates,
+  time_years = as.numeric(traj_dates - origin_date) / days_per_year,
+  quarter = traj_quarters
+)
+
+traj_pred_a <- predict(final_model_a, newdata = traj_df, interval = "confidence")
+traj_pred_pi_a <- predict(final_model_a, newdata = traj_df, interval = "prediction")
+
+traj_pred_log_b <- predict(final_model_b, newdata = traj_df, interval = "confidence")
+traj_pred_pi_log_b <- predict(final_model_b, newdata = traj_df, interval = "prediction")
+
+traj_pred_b_smear <- exp(traj_pred_log_b[, "fit"]) * final_smearing_factor_b
+traj_pred_pi_b_exp <- exp(traj_pred_pi_log_b)
+
+# Plotting Model A trajectory into 2026
+plot(
+  x = price_data$sale_date,
+  y = price_data$price_eur / 1000,
+  pch = 16,
+  cex = 0.4,
+  col = adjustcolor("grey60", alpha.f = 0.35),
+  xlim = c(min(price_data$sale_date), as.Date("2026-12-31")),
+  ylim = c(-50, 750),
+  main = "Model A: Historical trajectory (2019-2025) and 2026 forecast (with 95% PI)",
+  xlab = "Date",
+  ylab = "Price (EUR thousands)"
+)
+abline(v = as.Date("2026-01-01"), col = "grey30", lty = 3, lwd = 1.5)
+polygon(
+  c(traj_df$sale_date, rev(traj_df$sale_date)),
+  c(traj_pred_pi_a[, "lwr"] / 1000, rev(traj_pred_pi_a[, "upr"] / 1000)),
+  col = adjustcolor(chart_colour, alpha.f = 0.15),
+  border = NA
+)
+lines(traj_df$sale_date, traj_pred_a[, "fit"] / 1000, col = chart_colour, lwd = 2.5)
+lines(traj_df$sale_date, traj_pred_pi_a[, "lwr"] / 1000, col = chart_colour, lty = 2, lwd = 1.5)
+lines(traj_df$sale_date, traj_pred_pi_a[, "upr"] / 1000, col = chart_colour, lty = 2, lwd = 1.5)
+points(
+  scenarios_2026$forecast_date,
+  pred_2026_a / 1000,
+  pch = 18,
+  cex = 1.6,
+  col = chart_colour
+)
+legend(
+  "topleft",
+  legend = c(
+    "Historical sales (2019-2025)",
+    "Model A trajectory",
+    "Model A 95% prediction interval",
+    "2026 forecast scenarios"
+  ),
+  col = c("grey60", chart_colour, chart_colour, chart_colour),
+  pch = c(16, NA, NA, 18),
+  lty = c(NA, 1, 2, NA),
+  lwd = c(NA, 2.5, 1.5, NA),
+  pt.cex = c(0.8, NA, NA, 1.4),
+  bty = "n",
+  cex = 0.8
+)
+
+# Plotting Model B trajectory into 2026
+plot(
+  x = price_data$sale_date,
+  y = price_data$price_eur / 1000,
+  pch = 16,
+  cex = 0.4,
+  col = adjustcolor("grey60", alpha.f = 0.35),
+  xlim = c(min(price_data$sale_date), as.Date("2026-12-31")),
+  ylim = c(0, 750),
+  main = "Model B: Historical trajectory (2019-2025) and 2026 forecast (with 95% PI)",
+  xlab = "Date",
+  ylab = "Price (EUR thousands)"
+)
+abline(v = as.Date("2026-01-01"), col = "grey30", lty = 3, lwd = 1.5)
+polygon(
+  c(traj_df$sale_date, rev(traj_df$sale_date)),
+  c(traj_pred_pi_b_exp[, "lwr"] / 1000, rev(traj_pred_pi_b_exp[, "upr"] / 1000)),
+  col = adjustcolor(secondary_colour, alpha.f = 0.15),
+  border = NA
+)
+lines(traj_df$sale_date, exp(traj_pred_log_b[, "fit"]) / 1000, col = "black", lwd = 2, lty = 3)
+lines(traj_df$sale_date, traj_pred_b_smear / 1000, col = secondary_colour, lwd = 2.5)
+lines(traj_df$sale_date, traj_pred_pi_b_exp[, "lwr"] / 1000, col = secondary_colour, lty = 2, lwd = 1.5)
+lines(traj_df$sale_date, traj_pred_pi_b_exp[, "upr"] / 1000, col = secondary_colour, lty = 2, lwd = 1.5)
+points(
+  scenarios_2026$forecast_date,
+  pred_2026_b_smear / 1000,
+  pch = 18,
+  cex = 1.6,
+  col = secondary_colour
+)
+points(
+  scenarios_2026$forecast_date,
+  pred_2026_b_exp / 1000,
+  pch = 17,
+  cex = 1.3,
+  col = "black"
+)
+legend(
+  "topleft",
+  legend = c(
+    "Historical sales (2019-2025)",
+    "Model B (Duan smearing mean)",
+    "Model B (exp back-transform median)",
+    "Model B 95% prediction interval",
+    "2026 scenarios (Duan / exp)"
+  ),
+  col = c("grey60", secondary_colour, "black", secondary_colour, secondary_colour),
+  pch = c(16, NA, NA, NA, 18),
+  lty = c(NA, 1, 3, 2, NA),
+  lwd = c(NA, 2.5, 2, 1.5, NA),
+  pt.cex = c(0.8, NA, NA, NA, 1.4),
+  bty = "n",
+  cex = 0.8
+)
+
+dev.off()
+
+# Checking saved 2026 forecast chart
+stopifnot(
+  file.exists(fig11_path),
+  file.info(fig11_path)$size > 0
+)
+
+cat(
+  "\nSection 9 completed.",
+  "\nFull dataset records refitted:", nrow(price_data),
+  "\n2026 hypothetical scenarios appraised:", nrow(forecast_2026_hypothetical_scenarios),
+  "\nForecast chart saved: 1",
+  "\n"
+)
