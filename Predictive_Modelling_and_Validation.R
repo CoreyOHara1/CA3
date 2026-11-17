@@ -1213,3 +1213,494 @@ cat(
   "\nSensitivity specifications compared:", nrow(influence_and_duplicate_sensitivity),
   "\n"
 )
+
+
+# SECTION 7: Validating candidate models on held-out 2025 records
+
+# Checking held-out 2025 datasets, fitted models and helpers
+stopifnot(
+  exists("test_2025"),
+  exists("test_2025_all_records"),
+  exists("baseline_mean_price"),
+  exists("baseline_median_price"),
+  exists("model_a"),
+  exists("model_b"),
+  exists("smearing_factor_b"),
+  exists("model_a_all_records"),
+  exists("model_b_all_records"),
+  exists("calculate_error_metrics"),
+  exists("output_dir"),
+  exists("figures_dir"),
+  exists("chart_colour"),
+  exists("secondary_colour")
+)
+
+# Generating 2025 out-of-sample predictions from 2019-2024 models
+test_2025_pred_mean <- rep(baseline_mean_price, nrow(test_2025))
+test_2025_pred_median <- rep(baseline_median_price, nrow(test_2025))
+test_2025_pred_model_a <- unname(predict(model_a, newdata = test_2025))
+
+test_2025_pred_log_b <- unname(predict(model_b, newdata = test_2025))
+test_2025_pred_model_b_exp <- exp(test_2025_pred_log_b)
+test_2025_pred_model_b_smear <- test_2025_pred_model_b_exp * smearing_factor_b
+
+# Generating 2025 duplicate-sensitivity predictions on all 2025 records
+smearing_factor_b_all <- mean(exp(residuals(model_b_all_records)))
+test_2025_all_pred_model_a <- unname(
+  predict(model_a_all_records, newdata = test_2025_all_records)
+)
+test_2025_all_pred_log_b <- unname(
+  predict(model_b_all_records, newdata = test_2025_all_records)
+)
+test_2025_all_pred_model_b_exp <- exp(test_2025_all_pred_log_b)
+test_2025_all_pred_model_b_smear <- (
+  test_2025_all_pred_model_b_exp * smearing_factor_b_all
+)
+
+# Checking 2025 prediction vectors
+stopifnot(
+  length(test_2025_pred_model_a) == nrow(test_2025),
+  length(test_2025_pred_model_b_exp) == nrow(test_2025),
+  length(test_2025_pred_model_b_smear) == nrow(test_2025),
+  !anyNA(test_2025_pred_model_a),
+  !anyNA(test_2025_pred_model_b_exp),
+  !anyNA(test_2025_pred_model_b_smear),
+  all(test_2025_pred_model_a > 0),
+  all(test_2025_pred_model_b_exp > 0),
+  all(test_2025_pred_model_b_smear > 0)
+)
+
+# Comparing held-out 2025 validation metrics across candidate models
+heldout_2025_validation_metrics <- rbind(
+  calculate_error_metrics(
+    test_2025$price_eur,
+    test_2025_pred_mean,
+    "Baseline (Mean)",
+    "2025 held-out test (main, n = 675)"
+  ),
+  calculate_error_metrics(
+    test_2025$price_eur,
+    test_2025_pred_median,
+    "Baseline (Median)",
+    "2025 held-out test (main, n = 675)"
+  ),
+  calculate_error_metrics(
+    test_2025$price_eur,
+    test_2025_pred_model_a,
+    "Model A (Linear price)",
+    "2025 held-out test (main, n = 675)"
+  ),
+  calculate_error_metrics(
+    test_2025$price_eur,
+    test_2025_pred_model_b_exp,
+    "Model B (Log-linear, exp back-transform)",
+    "2025 held-out test (main, n = 675)"
+  ),
+  calculate_error_metrics(
+    test_2025$price_eur,
+    test_2025_pred_model_b_smear,
+    "Model B (Log-linear, Duan smearing)",
+    "2025 held-out test (main, n = 675)"
+  ),
+  calculate_error_metrics(
+    test_2025_all_records$price_eur,
+    test_2025_all_pred_model_a,
+    "Model A (Linear price, all records)",
+    "2025 held-out test (exact copies retained, n = 676)"
+  ),
+  calculate_error_metrics(
+    test_2025_all_records$price_eur,
+    test_2025_all_pred_model_b_exp,
+    "Model B (Log-linear, exp, all records)",
+    "2025 held-out test (exact copies retained, n = 676)"
+  ),
+  calculate_error_metrics(
+    test_2025_all_records$price_eur,
+    test_2025_all_pred_model_b_smear,
+    "Model B (Log-linear, Duan smearing, all records)",
+    "2025 held-out test (exact copies retained, n = 676)"
+  )
+)
+
+# Adding log-scale MAE and RMSE on held-out 2025 records
+pred_list_2025 <- list(
+  test_2025_pred_mean,
+  test_2025_pred_median,
+  test_2025_pred_model_a,
+  test_2025_pred_model_b_exp,
+  test_2025_pred_model_b_smear,
+  test_2025_all_pred_model_a,
+  test_2025_all_pred_model_b_exp,
+  test_2025_all_pred_model_b_smear
+)
+
+actual_log_list_2025 <- list(
+  test_2025$log_price_eur,
+  test_2025$log_price_eur,
+  test_2025$log_price_eur,
+  test_2025$log_price_eur,
+  test_2025$log_price_eur,
+  test_2025_all_records$log_price_eur,
+  test_2025_all_records$log_price_eur,
+  test_2025_all_records$log_price_eur
+)
+
+heldout_2025_validation_metrics$log_mae <- mapply(
+  function(pred_vec, actual_log_vec) {
+    mean(abs(log(pred_vec) - actual_log_vec))
+  },
+  pred_list_2025,
+  actual_log_list_2025
+)
+
+heldout_2025_validation_metrics$log_rmse <- mapply(
+  function(pred_vec, actual_log_vec) {
+    sqrt(mean((log(pred_vec) - actual_log_vec)^2))
+  },
+  pred_list_2025,
+  actual_log_list_2025
+)
+
+cat("\nHeld-out 2025 validation metrics:\n")
+print(heldout_2025_validation_metrics, row.names = FALSE, digits = 6)
+
+# Saving held-out 2025 validation metrics
+write.csv(
+  heldout_2025_validation_metrics,
+  file.path(output_dir, "13_heldout_2025_validation_metrics.csv"),
+  row.names = FALSE
+)
+
+# Calculating quarterly 2025 validation errors across candidate models
+quarters_2025 <- levels(test_2025$quarter)
+quarterly_rows_list <- list()
+
+for (q_lvl in quarters_2025) {
+  q_idx <- which(test_2025$quarter == q_lvl)
+  q_actual <- test_2025$price_eur[q_idx]
+  q_label <- paste0("2025 ", q_lvl)
+
+  q_table <- rbind(
+    calculate_error_metrics(
+      q_actual,
+      test_2025_pred_mean[q_idx],
+      "Baseline (Mean)",
+      q_label
+    ),
+    calculate_error_metrics(
+      q_actual,
+      test_2025_pred_median[q_idx],
+      "Baseline (Median)",
+      q_label
+    ),
+    calculate_error_metrics(
+      q_actual,
+      test_2025_pred_model_a[q_idx],
+      "Model A (Linear price)",
+      q_label
+    ),
+    calculate_error_metrics(
+      q_actual,
+      test_2025_pred_model_b_exp[q_idx],
+      "Model B (Log-linear, exp back-transform)",
+      q_label
+    ),
+    calculate_error_metrics(
+      q_actual,
+      test_2025_pred_model_b_smear[q_idx],
+      "Model B (Log-linear, Duan smearing)",
+      q_label
+    )
+  )
+
+  q_table$quarter <- q_lvl
+  quarterly_rows_list[[q_lvl]] <- q_table
+}
+
+heldout_2025_quarterly_errors <- do.call(rbind, quarterly_rows_list)
+rownames(heldout_2025_quarterly_errors) <- NULL
+
+cat("\nHeld-out 2025 quarterly validation errors:\n")
+print(heldout_2025_quarterly_errors, row.names = FALSE, digits = 6)
+
+# Saving quarterly 2025 validation errors
+write.csv(
+  heldout_2025_quarterly_errors,
+  file.path(output_dir, "14_heldout_2025_quarterly_errors.csv"),
+  row.names = FALSE
+)
+
+# Saving Chart 8: Held-out 2025 actual vs predicted prices
+fig8_path <- file.path(
+  figures_dir,
+  "08_validation_actual_vs_predicted_2025.png"
+)
+
+png(
+  fig8_path,
+  width = 2400,
+  height = 1100,
+  res = 180
+)
+
+par(
+  mfrow = c(1, 2),
+  mar = c(4.5, 5.5, 3.5, 1.5),
+  las = 1
+)
+
+ord_2025 <- order(test_2025$sale_date)
+
+plot(
+  x = test_2025$sale_date[ord_2025],
+  y = test_2025$price_eur[ord_2025] / 1000,
+  pch = 16,
+  cex = 0.55,
+  col = adjustcolor("grey45", alpha.f = 0.45),
+  ylim = c(0, 650),
+  main = "Held-out 2025 sales and model trajectories (<= 650k EUR)",
+  xlab = "Sale date in 2025",
+  ylab = "Price (thousand EUR)"
+)
+lines(
+  x = test_2025$sale_date[ord_2025],
+  y = test_2025_pred_model_a[ord_2025] / 1000,
+  col = chart_colour,
+  lwd = 2.5
+)
+lines(
+  x = test_2025$sale_date[ord_2025],
+  y = test_2025_pred_model_b_smear[ord_2025] / 1000,
+  col = secondary_colour,
+  lwd = 2.5,
+  lty = 2
+)
+lines(
+  x = test_2025$sale_date[ord_2025],
+  y = test_2025_pred_model_b_exp[ord_2025] / 1000,
+  col = "black",
+  lwd = 2.2,
+  lty = 3
+)
+legend(
+  "topleft",
+  legend = c(
+    "Actual 2025 sales",
+    "Model A (Linear price)",
+    "Model B (Duan smearing)",
+    "Model B (exp back-transform)"
+  ),
+  col = c(
+    adjustcolor("grey45", alpha.f = 0.7),
+    chart_colour,
+    secondary_colour,
+    "black"
+  ),
+  pch = c(16, NA, NA, NA),
+  lty = c(NA, 1, 2, 3),
+  lwd = c(NA, 2.5, 2.5, 2.2),
+  bty = "n",
+  cex = 0.82
+)
+
+q_nums <- 1:4
+q_actual_means <- tapply(test_2025$price_eur, test_2025$quarter, mean) / 1000
+q_actual_medians <- tapply(test_2025$price_eur, test_2025$quarter, median) / 1000
+q_pred_a_means <- tapply(test_2025_pred_model_a, test_2025$quarter, mean) / 1000
+q_pred_b_smear_means <- tapply(
+  test_2025_pred_model_b_smear,
+  test_2025$quarter,
+  mean
+) / 1000
+q_pred_b_exp_means <- tapply(
+  test_2025_pred_model_b_exp,
+  test_2025$quarter,
+  mean
+) / 1000
+
+plot(
+  x = q_nums,
+  y = q_actual_means,
+  type = "b",
+  pch = 16,
+  lwd = 2.2,
+  col = "grey25",
+  xaxt = "n",
+  ylim = c(175, 285),
+  main = "2025 quarterly actual vs predicted prices",
+  xlab = "2025 quarter",
+  ylab = "Price (thousand EUR)"
+)
+axis(1, at = q_nums, labels = quarters_2025)
+lines(
+  x = q_nums,
+  y = q_actual_medians,
+  type = "b",
+  pch = 17,
+  lwd = 2,
+  lty = 2,
+  col = "grey45"
+)
+lines(
+  x = q_nums,
+  y = q_pred_a_means,
+  type = "b",
+  pch = 15,
+  lwd = 2.2,
+  col = chart_colour
+)
+lines(
+  x = q_nums,
+  y = q_pred_b_smear_means,
+  type = "b",
+  pch = 18,
+  lwd = 2.2,
+  lty = 2,
+  col = secondary_colour
+)
+lines(
+  x = q_nums,
+  y = q_pred_b_exp_means,
+  type = "b",
+  pch = 4,
+  lwd = 2,
+  lty = 3,
+  col = "black"
+)
+legend(
+  "topleft",
+  legend = c(
+    "Actual quarterly mean",
+    "Actual quarterly median",
+    "Model A mean prediction",
+    "Model B (Duan smearing)",
+    "Model B (exp back-transform)"
+  ),
+  col = c("grey25", "grey45", chart_colour, secondary_colour, "black"),
+  pch = c(16, 17, 15, 18, 4),
+  lty = c(1, 2, 1, 2, 3),
+  lwd = 2,
+  bty = "n",
+  cex = 0.78
+)
+
+dev.off()
+
+# Saving Chart 9: Held-out 2025 prediction errors over sale date
+fig9_path <- file.path(
+  figures_dir,
+  "09_validation_errors_over_2025_dates.png"
+)
+
+err_2025_model_a <- test_2025_pred_model_a - test_2025$price_eur
+err_2025_model_b_exp <- test_2025_pred_model_b_exp - test_2025$price_eur
+err_2025_model_b_smear <- test_2025_pred_model_b_smear - test_2025$price_eur
+
+png(
+  fig9_path,
+  width = 2400,
+  height = 1800,
+  res = 180
+)
+
+par(
+  mfrow = c(2, 1),
+  mar = c(4.5, 5.5, 3.5, 1.5),
+  las = 1
+)
+
+plot(
+  x = test_2025$sale_date,
+  y = err_2025_model_a / 1000,
+  pch = 16,
+  cex = 0.55,
+  col = adjustcolor(chart_colour, alpha.f = 0.5),
+  main = "Model A: Held-out 2025 prediction error (predicted - actual) over date",
+  xlab = "Sale date in 2025",
+  ylab = "Prediction error (thousand EUR)"
+)
+abline(h = 0, col = "black", lwd = 2, lty = 2)
+lines(
+  lowess(as.numeric(test_2025$sale_date), err_2025_model_a / 1000),
+  col = secondary_colour,
+  lwd = 2.2
+)
+
+plot(
+  x = test_2025$sale_date,
+  y = err_2025_model_b_exp / 1000,
+  pch = 16,
+  cex = 0.55,
+  col = adjustcolor(secondary_colour, alpha.f = 0.5),
+  main = "Model B (exp back-transform): Held-out 2025 prediction error over date",
+  xlab = "Sale date in 2025",
+  ylab = "Prediction error (thousand EUR)"
+)
+abline(h = 0, col = "black", lwd = 2, lty = 2)
+lines(
+  lowess(as.numeric(test_2025$sale_date), err_2025_model_b_exp / 1000),
+  col = chart_colour,
+  lwd = 2.2
+)
+
+dev.off()
+
+# Saving Chart 10: Held-out 2025 prediction errors by quarter
+fig10_path <- file.path(
+  figures_dir,
+  "10_validation_errors_by_2025_quarter.png"
+)
+
+png(
+  fig10_path,
+  width = 2400,
+  height = 1100,
+  res = 180
+)
+
+par(
+  mfrow = c(1, 2),
+  mar = c(4.5, 5.5, 3.5, 1.5),
+  las = 1
+)
+
+boxplot(
+  I(err_2025_model_a / 1000) ~ test_2025$quarter,
+  col = adjustcolor(chart_colour, alpha.f = 0.55),
+  border = "grey20",
+  pch = 16,
+  cex = 0.5,
+  main = "Model A: 2025 prediction error by quarter",
+  xlab = "2025 quarter",
+  ylab = "Prediction error (thousand EUR)"
+)
+abline(h = 0, col = "black", lwd = 2, lty = 2)
+
+boxplot(
+  I(err_2025_model_b_exp / 1000) ~ test_2025$quarter,
+  col = adjustcolor(secondary_colour, alpha.f = 0.55),
+  border = "grey20",
+  pch = 16,
+  cex = 0.5,
+  main = "Model B (exp): 2025 prediction error by quarter",
+  xlab = "2025 quarter",
+  ylab = "Prediction error (thousand EUR)"
+)
+abline(h = 0, col = "black", lwd = 2, lty = 2)
+
+dev.off()
+
+# Checking saved 2025 validation charts
+validation_charts_2025 <- c(fig8_path, fig9_path, fig10_path)
+
+stopifnot(
+  all(file.exists(validation_charts_2025)),
+  all(file.info(validation_charts_2025)$size > 0)
+)
+
+cat(
+  "\nSection 7 completed.",
+  "\nHeld-out 2025 records evaluated:", nrow(test_2025),
+  "\nValidation charts saved:", length(validation_charts_2025),
+  "\n"
+)
